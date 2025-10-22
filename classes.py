@@ -4,6 +4,8 @@ import numpy.typing as npt
 import json
 import os
 
+from utils import load_arc1, load_arc2
+
 # Allow for padding to mult of 2
 MAX_GRID_DIM = 32
 # Allow for padding color
@@ -29,9 +31,12 @@ class ArcIOPair:
         input = np.array(input_list, dtype=int)
         output = np.array(output_list, dtype=int)
         return cls(input, output)
+    
+    def to_lists(self) -> tuple[list[list[int]], list[list[int]]]:
+        return self.input.tolist(), self.output.tolist()
 
 @dataclass
-class ArcProblem:
+class ArcTask:
     name: str
     train_pairs: list[ArcIOPair]
     test_pairs: list[ArcIOPair]
@@ -42,13 +47,23 @@ class ArcProblem:
             data = json.load(f)
         name = filepath.split('/')[-1].replace('.json', '')
         if len(name) != 8:
-            raise ValueError(f"Problem name must be 8 characters long, got '{name}'")
+            raise ValueError(f"Task name must be 8 characters long, got '{name}'")
         train = data["train"]
         test = data["test"]
         train_pairs = [ArcIOPair.from_lists(pair["input"], pair["output"]) for pair in train]
         test_pairs = [ArcIOPair.from_lists(pair["input"], pair["output"]) for pair in test]
         return cls(name, train_pairs, test_pairs)
     
+    @classmethod
+    def from_name(cls, name: str) -> 'ArcTask':
+        if len(name) != 8:
+            raise ValueError(f"Problem name must be 8 characters long, got '{name}'")
+        for dataset in [load_arc1(), load_arc2()]:
+            for problem in dataset.training + dataset.evaluation:
+                if problem.name == name:
+                    return problem
+        raise ValueError(f"Problem with name '{name}' not found in ARC datasets.")
+
     def size_heuristic(self) -> bool:
         # Is it easy to figure out output size?
         in_shape = [pair.input.shape for pair in self.train_pairs + self.test_pairs]
@@ -62,7 +77,7 @@ class ArcProblem:
             return True
         return False
 
-    def to_onehot(self, exclude_unused: bool = False) -> 'ArcProblem':
+    def to_onehot(self, exclude_unused: bool = False) -> 'ArcTask':
         # It's important that this is done at the ArcProblem level, not the ArcIO level
         # because pairs in a problem share a 'color space', i.e. color relationships (if any) are constant
         # so we need the color encoding to be consistent across all pairs.
@@ -86,40 +101,40 @@ class ArcProblem:
                     onehot[i, j, color] = 1
             return onehot
         
-        return ArcProblem(
+        return ArcTask(
             name=self.name,
             train_pairs=[ArcIOPair(to_onehot_array(pair.input), to_onehot_array(pair.output), onehot=True) for pair in self.train_pairs],
             test_pairs=[ArcIOPair(to_onehot_array(pair.input), to_onehot_array(pair.output), onehot=True) for pair in self.test_pairs]
         )
     
-    def pad(self, size: tuple[int, int], pad_val: int) -> 'ArcProblem':
+    def pad(self, size: tuple[int, int], pad_val: int) -> 'ArcTask':
         def pad_array(array: np.ndarray) -> np.ndarray:
             padded_array = np.full(size, pad_val, dtype=int)
             padded_array[:array.shape[0], :array.shape[1]] = array
             return padded_array
-        return ArcProblem(
+        return ArcTask(
             name=self.name + f'_padded_{size[0]}x{size[1]}',
             train_pairs=[ArcIOPair(pad_array(pair.input), pad_array(pair.output), pair.onehot) for pair in self.train_pairs],
             test_pairs=[ArcIOPair(pad_array(pair.input), pad_array(pair.output), pair.onehot) for pair in self.test_pairs]
         )
     
-def mirror(probs: list[ArcProblem]) -> list[ArcProblem]:
+def mirror(probs: list[ArcTask]) -> list[ArcTask]:
     mirrored = []
     for prob in probs:
         mirrored.append(prob)
-        mirrored.append(ArcProblem(
+        mirrored.append(ArcTask(
             name=prob.name + '_mirrored',
             train_pairs=[ArcIOPair(np.fliplr(pair.input), np.fliplr(pair.output), pair.onehot) for pair in prob.train_pairs],
             test_pairs=[ArcIOPair(np.fliplr(pair.input), np.fliplr(pair.output), pair.onehot) for pair in prob.test_pairs]
         ))
     return mirrored
 
-def rotate(probs: list[ArcProblem]) -> list[ArcProblem]:
+def rotate(probs: list[ArcTask]) -> list[ArcTask]:
     rotated = []
     for prob in probs:
         rotated.append(prob)
         for ang in range(3):
-            prob = ArcProblem(
+            prob = ArcTask(
                 name=prob.name + f'_rotated_{(ang + 1) * 90}',
                 train_pairs=[ArcIOPair(np.rot90(pair.input), np.rot90(pair.output), pair.onehot) for pair in prob.train_pairs],
                 test_pairs=[ArcIOPair(np.rot90(pair.input), np.rot90(pair.output), pair.onehot) for pair in prob.test_pairs]
@@ -127,15 +142,15 @@ def rotate(probs: list[ArcProblem]) -> list[ArcProblem]:
             rotated.append(prob)
     return rotated
 
-def colorswap(probs: list[ArcProblem], num_perms: int) -> list[ArcProblem]:
+def colorswap(probs: list[ArcTask], num_perms: int) -> list[ArcTask]:
     # Naive implementation takes forever so have to be mildly smart about this
     return probs
 
 @dataclass
 class ArcDataset:
     name: str
-    training: list[ArcProblem]
-    evaluation: list[ArcProblem]
+    training: list[ArcTask]
+    evaluation: list[ArcTask]
     
     @classmethod
     def from_directory(cls, directory: str):
@@ -146,7 +161,7 @@ class ArcDataset:
             subset_path = os.path.join(directory, subset)
             for filename in os.listdir(subset_path):
                 if filename.endswith('.json'):
-                    problem = ArcProblem.from_file(os.path.join(subset_path, filename))
+                    problem = ArcTask.from_file(os.path.join(subset_path, filename))
                     if subset == 'training':
                         training.append(problem)
                     else:
@@ -209,44 +224,11 @@ class ArcDataset:
             names.add(prob.name)
         return list(names)
     
-    def get_problem(self, name: str) -> ArcProblem:
+    def get_problem(self, name: str) -> ArcTask:
         for prob in self.training + self.evaluation:
             if prob.name == name:
                 return prob
         raise ValueError(f"Problem with name '{name}' not found in dataset '{self.name}'")
-
-def load_arc1() -> ArcDataset:
-    return ArcDataset.from_directory('arc/arc1')
-
-def load_arc2() -> ArcDataset:
-    return ArcDataset.from_directory('arc/arc2')
-
-def load_all() -> ArcDataset:
-    arc1, arc2 = load_arc1(), load_arc2()
-    training = arc1.training + arc2.training
-    evaluation = arc1.evaluation + arc2.evaluation
-    return ArcDataset(name='all', training=training, evaluation=evaluation)
-
-def count_partitions(n: int, k: int) -> int:
-    """Count partitions of n into at most k parts."""
-    # dp[i][j] = number of partitions of i into at most j parts
-    dp = [[0] * (k + 1) for _ in range(n + 1)]
-    
-    # Base cases: there's exactly one way to partition 0 (empty partition)
-    for j in range(k + 1):
-        dp[0][j] = 1
-    
-    for i in range(1, n + 1):
-        for j in range(1, k + 1):
-            # Case 1: Don't use a new part (inherit from j-1 parts)
-            dp[i][j] = dp[i][j-1]
-            
-            # Case 2: Use at least one part of size exactly j
-            # This means we need to partition (i-j) into at most j parts
-            if i >= j:
-                dp[i][j] += dp[i-j][j]
-    
-    return dp[n][k]
 
 BoolArray2D = npt.NDArray[np.bool]
 

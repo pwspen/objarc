@@ -1,0 +1,10 @@
+0: black
+1: blue
+2: red
+3: green
+4: yellow
+5: gray
+6: pink
+7: orange
+8: light_blue
+9: maroon

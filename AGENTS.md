@@ -1,2 +1,1 @@
-This project is a library and visualization API for the ARC-AGI datasets (Abstract Reasoning Corpus).
-
+This project is a library and visualization API + webpage for the ARC-AGI datasets (Abstract Reasoning Corpus).

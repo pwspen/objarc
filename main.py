@@ -1,6 +1,7 @@
-from classes import load_all, load_arc1, load_arc2, Grid, ArcProblem
+from classes import Grid, ArcTask
+from utils import load_all, load_arc1, load_arc2
 
-def print_prob(prob: ArcProblem, test_only: bool = True) -> None:
+def print_prob(prob: ArcTask, test_only: bool = True) -> None:
     train, test = ("Train", prob.train_pairs), ("Test", prob.test_pairs)
     sets = (test,) if test_only else (test, train)
     for name, pairs in sets:
