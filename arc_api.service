@@ -1,0 +1,14 @@
+[Unit]
+Description=ARC API Service
+After=network.target
+
+[Service]
+Type=simple
+User=synapso
+WorkingDirectory=/home/synapso/objarc
+ExecStart=/usr/bin/env python3 /home/synapso/objarc/main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

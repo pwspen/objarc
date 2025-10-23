@@ -1,8 +1,10 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from classes import ArcDataset, ArcTask, ArcIOPair, Grid
-from utils import load_tasknames, valid_datasets
+from utils import load_tasknames, valid_datasets, get_grid_stats
+import numpy as np
 
 arc_colors = {
     0: '#000000',  # Black
@@ -33,34 +35,31 @@ class ColoredGrid(BaseModel):
         
         return data
     
-    @field_validator('palette')
-    @classmethod
-    def validate_palette(cls, v):
-        if len(v) > 10:
+    @model_validator(mode='after')
+    def validate_all(self):
+        cells = self.cells
+        palette = self.palette
+        if len(palette) > 10:
             raise ValueError("Palette can have at most 10 colors")
-        for key, color in v.items():
+        for key, color in palette.items():
             if not isinstance(key, int) or key < 0 or key > 9:
                 raise ValueError("Palette keys must be integers 0-9")
             if not (isinstance(color, str) and color.startswith('#') and len(color) == 7):
                 raise ValueError(f"Invalid hex color: {color}")
-        return v
-    
-    @field_validator('cells')
-    @classmethod
-    def validate_cells(cls, v, info):
-        palette = info.data.get('palette', {})
+        
         
         max_dim = 30
-        if len(v) > max_dim or any(len(row) > max_dim for row in v):
+        if len(cells) > max_dim or any(len(row) > max_dim for row in cells):
             raise ValueError(f"Number of rows exceeds maximum of {max_dim}")
 
-        for val in [cell for row in v for cell in row]:
-            if val not in palette:
-                raise ValueError(f"Cell value {val} not in palette")
-        return v
+        for val in [cell for row in cells for cell in row]:
+            if val not in palette.keys():
+                raise ValueError(f"Cell value {val} not in palette (keys: {list(palette.keys())})")
+        
+        return self
     
 class WebGridData(BaseModel):
-    data: dict[str, float]
+    data: dict
 
 class WebGrid(BaseModel):
     cells: ColoredGrid
@@ -75,6 +74,12 @@ class WebTask(BaseModel):
     test: list[WebIOPair]
 
 app = FastAPI()
+
+app.add_middleware(CORSMiddleware, 
+                   allow_origins=["http://localhost:5173"], 
+                   allow_methods=["*"],
+                   allow_headers=["*"]
+                   )
 
 @app.get("/datasets", response_model=list[str])
 def get_datasets():
@@ -94,8 +99,8 @@ def to_web_task(task: ArcTask) -> WebTask:
     def to_web_io_pair(pair: ArcIOPair) -> WebIOPair:
         inp, out = pair.to_lists()
         return WebIOPair(
-            input=WebGrid(cells=ColoredGrid(cells=inp), data=WebGridData(data={})),
-            output=WebGrid(cells=ColoredGrid(cells=out), data=WebGridData(data={}))
+            input=WebGrid(cells=ColoredGrid(cells=inp), data=WebGridData(data=get_grid_stats(pair.input))),
+            output=WebGrid(cells=ColoredGrid(cells=out), data=WebGridData(data=get_grid_stats(pair.output))),
         )
     
     web_train = [to_web_io_pair(pair) for pair in task.train_pairs]

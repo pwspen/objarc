@@ -4,8 +4,6 @@ import numpy.typing as npt
 import json
 import os
 
-from utils import load_arc1, load_arc2
-
 # Allow for padding to mult of 2
 MAX_GRID_DIM = 32
 # Allow for padding color
@@ -229,6 +227,13 @@ class ArcDataset:
             if prob.name == name:
                 return prob
         raise ValueError(f"Problem with name '{name}' not found in dataset '{self.name}'")
+
+def load_arc1() -> ArcDataset:
+    return ArcDataset.from_directory('arc/arc1')
+
+
+def load_arc2() -> ArcDataset:
+    return ArcDataset.from_directory('arc/arc2')
 
 BoolArray2D = npt.NDArray[np.bool]
 
