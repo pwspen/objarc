@@ -1,3 +1,5 @@
+import { type ReactNode } from 'react';
+
 import { MetricDictionary, MetricValue, WebGridData } from '@/types/api';
 
 interface DepthStyle {
@@ -49,7 +51,7 @@ const formatValue = (value: number): string => {
   return value.toPrecision(3);
 };
 
-const renderEntries = (dictionary: MetricDictionary, depth = 0): JSX.Element[] => {
+const renderEntries = (dictionary: MetricDictionary, depth = 0): ReactNode[] => {
   const entries = Object.entries(dictionary);
   const style = getDepthStyle(depth);
 

@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import GridCells from '@/components/GridCells';
 import GridData from '@/components/GridData';
 import HeatmapDisplay from '@/components/HeatmapDisplay';
-import { WebIOPair } from '@/types/api';
+import { HeatmapGrid, WebIOPair } from '@/types/api';
 
 const REQUIRED_HEATMAP_KEYS = ['Input Auto', 'Cross', 'Output Auto'] as const;
 
@@ -15,8 +15,14 @@ interface IOPairProps {
   showHeatmaps: boolean;
 }
 
+interface HeatmapGrids {
+  inputAuto: HeatmapGrid;
+  cross: HeatmapGrid;
+  outputAuto: HeatmapGrid;
+}
+
 const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
-  const heatmapGrids = useMemo(() => {
+  const heatmapGrids = useMemo<HeatmapGrids | null>(() => {
     if (!showHeatmaps) {
       return null;
     }
@@ -37,9 +43,7 @@ const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
     };
   }, [pair.heatmaps, showHeatmaps, label]);
 
-  const shouldShowHeatmaps = Boolean(heatmapGrids);
-
-  const gridTemplateClass = shouldShowHeatmaps
+  const gridTemplateClass = heatmapGrids
     ? 'grid-cols-[auto_max-content_minmax(11rem,1fr)]'
     : 'grid-cols-[auto_max-content]';
 
@@ -59,7 +63,7 @@ const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
         <div className="row-start-1 col-start-2">
           <GridData gridData={pair.input.data} />
         </div>
-        {shouldShowHeatmaps ? (
+        {heatmapGrids ? (
           <div className="row-start-1 col-start-3">
             <HeatmapDisplay label="Input Auto" grid={heatmapGrids.inputAuto} />
           </div>
@@ -68,7 +72,7 @@ const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
           ↓
         </span>
         <div className="row-start-2 col-start-2" aria-hidden="true" />
-        {shouldShowHeatmaps ? (
+        {heatmapGrids ? (
           <div className="row-start-2 col-start-3">
             <HeatmapDisplay label="Cross" grid={heatmapGrids.cross} />
           </div>
@@ -79,7 +83,7 @@ const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
         <div className="row-start-3 col-start-2">
           <GridData gridData={pair.output.data} />
         </div>
-        {shouldShowHeatmaps ? (
+        {heatmapGrids ? (
           <div className="row-start-3 col-start-3">
             <HeatmapDisplay label="Output Auto" grid={heatmapGrids.outputAuto} />
           </div>

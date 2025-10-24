@@ -4,6 +4,7 @@ set -e
 # Repo must be installed in /var/www/arc/ !!!
 
 cd /var/www/arc/viz
+npm install
 npm run build
 
 cd /var/www/arc
