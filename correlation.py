@@ -10,7 +10,7 @@ from utils import fft_cross_correlation
 # So only exact equality matters
 # This is what we want for ARC
 
-taskname = "00576224"
+taskname = "00d62c1b"
 pair_num = 1
 task = ArcTask.from_name(taskname)
 

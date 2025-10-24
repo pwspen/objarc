@@ -103,9 +103,12 @@ def to_web_task(task: ArcTask) -> WebTask:
     def to_web_io_pair(pair: ArcIOPair) -> WebIOPair:
         inp, out = pair.to_lists()
 
-        inp_auto = fft_cross_correlation(pair.input, pair.input, center=True)["matches"]
-        cross = fft_cross_correlation(pair.input, pair.output, center=True)["matches"]
-        out_auto = fft_cross_correlation(pair.output, pair.output, center=True)["matches"]
+        fft_inp = pair.input.copy() + 1
+        fft_out = pair.output.copy() + 1
+
+        inp_auto = fft_cross_correlation(fft_inp, fft_inp, center=True)["matches"]
+        cross = fft_cross_correlation(fft_inp, fft_out, center=True)["matches"]
+        out_auto = fft_cross_correlation(fft_out, fft_out, center=True)["matches"]
 
         return WebIOPair(
             input=WebGrid(cells=ColoredGrid(cells=inp), data=WebGridData(data=get_grid_stats(pair.input))),
