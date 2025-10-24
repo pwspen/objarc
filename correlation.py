@@ -1,144 +1,142 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 from classes import ArcTask
-
-def named_print(var):
-    # print(f"{var.__name__}:")
-    # print(var)
-    pass
 
 # This is categorical, not numerical
 # So only exact equality matters
 # This is what we want for ARC
-def fft_cross_correlation(image_a: np.ndarray, image_b: np.ndarray) -> np.ndarray:
+def fft_cross_correlation(
+    image_a: np.ndarray,
+    image_b: np.ndarray,
+    *,
+    center=False,          # if True, fftshift outputs so zero-shift is centered
+    z=None,                # if not None, return a conservative score: p - z*SE
+    remove_background=True # if True, remove color with largest impact (assumed background)
+):
+    """
+    Categorical cross-correlation without wraparound.
+    Returns a dict with:
+      - matches: number of exact color matches at each shift
+      - overlap: number of compared (both-nonempty) pixels at each shift
+      - fraction: matches / overlap (NaN where overlap == 0)
+      - score (optional): fraction - z * sqrt(p*(1-p)/overlap) (NaN where overlap == 0)
+    """
     EMPTY = 0
-
-    # We wamt to reserve zero for empty, so shift 0-9 -> 1-10
-    # We don't want to edit original arrays if they contain 0's
-    # We don't want to copy and create a new array
-    # We want to allow images to be supplied with empties already present
-    # So treaat 0 as empty, do not calculate for it, but allow to be present
-
     h_a, w_a = image_a.shape
     h_b, w_b = image_b.shape
-    out_h = h_a + h_b - 1
-    out_w = w_a + w_b - 1
-    
-    # Get all unique colors from both images
+    out_h, out_w = h_a + h_b - 1, w_a + w_b - 1
+
+    # Validate colors (1..10 are allowed, 0 is empty)
     unique_colors = np.union1d(np.unique(image_a), np.unique(image_b))
-    unique_colors = unique_colors[unique_colors != EMPTY]  # Exclude empty
+    unique_colors = unique_colors[unique_colors != EMPTY]
+    if np.any((unique_colors < 1) | (unique_colors > 10)):
+        bad = unique_colors[(unique_colors < 1) | (unique_colors > 10)]
+        raise ValueError(f"Color values out of expected range 1-10: {bad}")
 
+    # Accumulate exact matches across colors
+    matches = np.zeros((out_h, out_w), dtype=np.float64)
+    by_color = {}
     for color in unique_colors:
-        if color < 1 or color > 10:
-            if color != EMPTY:
-                raise ValueError(f"Color value {color} out of expected range 1-10")
+        mask_a = (image_a == color).astype(np.float64, copy=False)
+        mask_b = (image_b == color).astype(np.float64, copy=False)
 
-    # Accumulate correlation across all colors
-    total_correlation = np.zeros((out_h, out_w))
+        a_pad = np.zeros((out_h, out_w), dtype=np.float64)
+        b_pad = np.zeros((out_h, out_w), dtype=np.float64)
+        a_pad[:h_a, :w_a] = mask_a
+        b_pad[:h_b, :w_b] = mask_b
+
+        corr = np.fft.ifft2(np.fft.fft2(a_pad) * np.conj(np.fft.fft2(b_pad))).real
+
+        by_color[color] = corr
     
-    for color in unique_colors:
-        # Create binary masks for this color
-        mask_a = (image_a == color).astype(float)
-        mask_b = (image_b == color).astype(float)
-        named_print(mask_a)
+        matches += corr
 
-        # Pad masks
-        a_padded = np.full((out_h, out_w), EMPTY)
-        named_print(a_padded)
-        b_padded = np.full((out_h, out_w), EMPTY)
-        a_padded[:h_a, :w_a] = mask_a
-        named_print(a_padded)
-        b_padded[:h_b, :w_b] = mask_b
-        
-        # FFT cross-correlation for this color
-        fft_a = np.fft.fft2(a_padded)
-        fft_b = np.fft.fft2(b_padded)
-        product = fft_a * np.conj(fft_b)
+    # Remove color with largest impact
+    if len(by_color) > 1 and remove_background:
+        color_sums = {color: np.sum(corr) for color, corr in by_color.items()}
+        worst_color = max(color_sums, key=color_sums.get)
+        matches -= by_color[worst_color]
 
-        correlation = np.fft.ifft2(product).real
-        # print("correlation\n", correlation)
+    # Overlap = number of pixels compared (both non-empty)
+    nonempty_a = (image_a != EMPTY).astype(np.float64, copy=False)
+    nonempty_b = (image_b != EMPTY).astype(np.float64, copy=False)
+    a_pad = np.zeros((out_h, out_w), dtype=np.float64); a_pad[:h_a, :w_a] = nonempty_a
+    b_pad = np.zeros((out_h, out_w), dtype=np.float64); b_pad[:h_b, :w_b] = nonempty_b
+    overlap = np.fft.ifft2(np.fft.fft2(a_pad) * np.conj(np.fft.fft2(b_pad))).real
 
-        sum = correlation.sum()
-        # if sum < 10000:
-        total_correlation += correlation
-        print(f"Contribution from {color}: {sum:.2f}")
-    
-    # Enhance peaks
-    nonempty_a = (image_a != EMPTY).astype(float)
-    nonempty_b = (image_b != EMPTY).astype(float)
+    # Clean up numerical noise and enforce valid bounds
+    overlap = np.clip(np.rint(overlap), 0, None).astype(np.int64)
+    matches = np.clip(np.rint(matches), 0, None)
+    matches = np.minimum(matches, overlap).astype(np.float64)
 
-    a_pad = np.zeros((out_h, out_w), float); a_pad[:h_a, :w_a] = nonempty_a
-    b_pad = np.zeros((out_h, out_w), float); b_pad[:h_b, :w_b] = nonempty_b
+    # Fraction of matches (NaN where no pixels were compared)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        fraction = matches / overlap
+    fraction[overlap == 0] = np.nan
 
-    overlap_count = np.fft.ifft2(np.fft.fft2(a_pad) * np.conj(np.fft.fft2(b_pad))).real
-    overlap_count = np.clip(np.rint(overlap_count), 0, None)  # integerize, avoid tiny negatives
-    overlap_count = overlap_count / np.max(overlap_count[np.nonzero(overlap_count)])  # normalize to max 1
-    print(np.shape(overlap_count))
-    print(np.shape(total_correlation))
-    return total_correlation / overlap_count
+    result = dict(matches=matches, overlap=overlap, fraction=fraction)
 
-task = ArcTask.from_name("4c3d4a41")
+    if z is not None:
+        with np.errstate(invalid='ignore', divide='ignore'):
+            se = np.sqrt(fraction * (1.0 - fraction) / overlap)
+            score = fraction - z * se
+        score[overlap == 0] = np.nan
+        result['score'] = score
 
-image_b = task.train_pairs[0].input + 1
-image_a = task.train_pairs[0].output + 1
+    if center:
+        for k in list(result.keys()):
+            result[k] = np.fft.fftshift(result[k])
+
+    return result
+
+taskname = "45a5af55"
+pair_num = 1
+task = ArcTask.from_name(taskname)
+
+image_b = task.train_pairs[pair_num].input + 1
+image_a = task.train_pairs[pair_num].output + 1
 print(image_a)
 
-# Compute cross-correlation
-corr = fft_cross_correlation(image_a, image_b)
+params = ["matches"]#, "overlap", "score"]
 
-# Compute autocorrelation for comparison
-auto_corr = fft_cross_correlation(image_a, image_a)
 
-print(f"Image A shape: {image_a.shape}")
-print(f"Image B shape: {image_b.shape}")
-print(f"Cross-correlation shape: {corr.shape}")
-print(f"Autocorrelation shape: {auto_corr.shape}")
-print()
+for param in params:
+    for nobg in [True, False]:
+        # Compute cross-correlation
+        corr = fft_cross_correlation(image_a, image_b, z=2, center=True, remove_background=nobg)[param]
 
-# Find peak in autocorrelation (excluding center)
-# Center is at (h_a + h_b - 1) // 2
-center_y, center_x = (auto_corr.shape[0] // 2, auto_corr.shape[1] // 2)
-# Mask out center region to find secondary peaks
-masked = auto_corr.copy()
-masked[center_y-2:center_y+3, center_x-2:center_x+3] = -np.inf
-peak_loc = np.unravel_index(np.argmax(masked), masked.shape)
-print(f"Autocorrelation peak (excluding center) at offset: {peak_loc}")
-print(f"Distance from center: ({peak_loc[0] - center_y}, {peak_loc[1] - center_x})")
-print()
+        # Compute autocorrelation for comparison
+        autocorr_a = fft_cross_correlation(image_a, image_a, z=2, center=True)[param]
+        autocorr_b = fft_cross_correlation(image_b, image_b, z=2, center=True)[param]
 
-# Find peak in cross-correlation
-peak_cross = np.unravel_index(np.argmax(corr), corr.shape)
-print(f"Cross-correlation peak at offset: {peak_cross}")
-print(f"Correlation value: {corr[peak_cross]}")
 
-# Visualize
-fig, axes = plt.subplots(2, 3, figsize=(12, 8))
+        # Visualize
+        fig, axes = plt.subplots(3, 2, figsize=(12, 8))
 
-axes[0, 0].imshow(image_a, cmap='gray')
-axes[0, 0].set_title('Image A')
-axes[0, 0].axis('off')
+        axes[0, 0].imshow(image_a, cmap='gray')
+        axes[0, 0].set_title('Image A')
+        axes[0, 0].axis('off')
 
-axes[0, 1].imshow(image_b, cmap='gray')
-axes[0, 1].set_title('Image B')
-axes[0, 1].axis('off')
+        axes[1, 0].imshow(image_b, cmap='gray')
+        axes[1, 0].set_title('Image B')
+        axes[1, 0].axis('off')
 
-axes[0, 2].imshow(corr, cmap='hot')
-axes[0, 2].set_title('Cross-Correlation')
-axes[0, 2].plot(peak_cross[1], peak_cross[0], 'b+', markersize=10)
+        axes[2, 1].imshow(corr, cmap='hot')
+        axes[2, 1].set_title('Cross-Correlation')
 
-axes[1, 0].imshow(auto_corr, cmap='hot')
-axes[1, 0].set_title('Autocorrelation (Image A)')
-axes[1, 0].plot(center_x, center_y, 'b+', markersize=10, label='center')
-axes[1, 0].plot(peak_loc[1], peak_loc[0], 'g+', markersize=10, label='peak')
-axes[1, 0].legend()
+        axes[0, 1].imshow(autocorr_a, cmap='hot')
+        axes[0, 1].set_title('Autocorrelation (Image A)')
+        # axes[0, 1].legend()
 
-# Log scale for better visibility
-axes[1, 1].imshow(np.log1p(corr), cmap='hot')
-axes[1, 1].set_title('Cross-Correlation (log scale)')
+        axes[1, 1].imshow(autocorr_b, cmap='hot')
+        axes[1, 1].set_title('Autocorrelation (Image B)')
+        # axes[1, 1].legend()
 
-axes[1, 2].imshow(np.log1p(auto_corr), cmap='hot')
-axes[1, 2].set_title('Autocorrelation (log scale)')
+        axes[2, 0].set_visible(False)
 
-plt.tight_layout()
-plt.savefig("correlation_results.png")
+        plt.tight_layout()
+
+        os.makedirs(f"results/{taskname}", exist_ok=True)
+        plt.savefig(f"results/{taskname}/correlation_result_{param}_nobg={nobg}.png")
