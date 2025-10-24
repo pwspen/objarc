@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
-import json
 import os
+import json
+from functools import lru_cache
 
 # Allow for padding to mult of 2
 MAX_GRID_DIM = 32
@@ -228,10 +229,11 @@ class ArcDataset:
                 return prob
         raise ValueError(f"Problem with name '{name}' not found in dataset '{self.name}'")
 
+@lru_cache(maxsize=None)
 def load_arc1() -> ArcDataset:
     return ArcDataset.from_directory('arc/arc1')
 
-
+@lru_cache(maxsize=None)
 def load_arc2() -> ArcDataset:
     return ArcDataset.from_directory('arc/arc2')
 

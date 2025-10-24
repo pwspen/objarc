@@ -107,6 +107,8 @@ def to_web_task(task: ArcTask) -> WebTask:
     def to_web_io_pair(pair: ArcIOPair) -> WebIOPair:
         inp, out = pair.to_lists()
 
+        inp_tup, out_tup = (tuple(tuple(inner) for inner in grid) for grid in (inp, out))
+
         fft_inp = pair.input.copy() + 1
         fft_out = pair.output.copy() + 1
 
@@ -115,8 +117,8 @@ def to_web_task(task: ArcTask) -> WebTask:
         out_auto = fft_cross_correlation(fft_out, fft_out, center=True)["matches"]
 
         return WebIOPair(
-            input=WebGrid(cells=ColoredGrid(cells=inp), data=WebGridData(data=get_grid_stats(pair.input))),
-            output=WebGrid(cells=ColoredGrid(cells=out), data=WebGridData(data=get_grid_stats(pair.output))),
+            input=WebGrid(cells=ColoredGrid(cells=inp), data=WebGridData(data=get_grid_stats(inp_tup))),
+            output=WebGrid(cells=ColoredGrid(cells=out), data=WebGridData(data=get_grid_stats(out_tup))),
             heatmaps={
                 "Input Auto": HeatmapGrid(values=inp_auto.tolist()),
                 "Cross": HeatmapGrid(values=cross.tolist()),

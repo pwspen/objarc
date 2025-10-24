@@ -1,7 +1,9 @@
 from classes import ArcDataset, ArcTask, ArcIOPair, Grid, load_arc1, load_arc2
 import numpy as np
 from collections import defaultdict
+from functools import lru_cache
 
+@lru_cache(maxsize=None)
 def load_all() -> ArcDataset:
     arc1, arc2 = load_arc1(), load_arc2()
     training = arc1.training + arc2.training
@@ -11,7 +13,7 @@ def load_all() -> ArcDataset:
 
 valid_datasets = ["all", "ARC-1", "ARC-2", "ARC-1-train", "ARC-1-test", "ARC-2-train", "ARC-2-test"]
 
-
+@lru_cache(maxsize=None)
 def load_tasknames(dataset_name: str) -> list[str]:
     if dataset_name not in valid_datasets:
         raise ValueError(f"Invalid dataset name '{dataset_name}'. Valid names are: {valid_datasets}")
@@ -38,10 +40,6 @@ def load_tasknames(dataset_name: str) -> list[str]:
 
     print(len(names))
     return names
-    
-print(load_tasknames("ARC-1")[0:5])
-print(load_tasknames("ARC-2")[0:5])
-
 
 def print_prob(prob: ArcTask, test_only: bool = True) -> None:
     train, test = ("Train", prob.train_pairs), ("Test", prob.test_pairs)
@@ -131,7 +129,10 @@ def ngram_entropy(grid: np.ndarray, ngram_mask: np.ndarray, ngram_color_invarian
     
     return entropy
 
-def get_grid_stats(grid: np.ndarray):
+@lru_cache(maxsize=None)
+def get_grid_stats(listgrid: tuple[tuple[int]]) -> dict:
+    grid = np.array(listgrid)
+
     shannon_ent = shannon_entropy(grid)
 
     masks = {
