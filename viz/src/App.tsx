@@ -1,8 +1,33 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import TaskView from '@/components/TaskView';
 import { WebTask } from '@/types/api';
 import { fetchDatasets, fetchTask, fetchTasksInDataset } from '@/api/client';
 import '@/App.css';
+
+type SelectionState = {
+  dataset: string | null;
+  task: string | null;
+};
+
+const normalizeParam = (value: string | null): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const parseInitialSelection = (): SelectionState => {
+  if (typeof window === 'undefined') {
+    return { dataset: null, task: null };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return {
+    dataset: normalizeParam(params.get('dataset')),
+    task: normalizeParam(params.get('task')),
+  };
+};
 
 const App = () => {
   const [datasets, setDatasets] = useState<string[]>([]);
@@ -11,10 +36,11 @@ const App = () => {
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [task, setTask] = useState<WebTask | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loadingDatasets, setLoadingDatasets] = useState(false);
+  const [loadingDatasets, setLoadingDatasets] = useState(true);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [loadingTask, setLoadingTask] = useState(false);
   const [showHeatmaps, setShowHeatmaps] = useState(false);
+  const pendingSelectionRef = useRef<SelectionState>(parseInitialSelection());
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +55,12 @@ const App = () => {
           if (current && list.includes(current)) {
             return current;
           }
+          const pendingDataset = pendingSelectionRef.current.dataset;
+          if (pendingDataset && list.includes(pendingDataset)) {
+            pendingSelectionRef.current.dataset = null;
+            return pendingDataset;
+          }
+          pendingSelectionRef.current.dataset = null;
           return list.length > 0 ? list[0] : null;
         });
       })
@@ -69,8 +101,15 @@ const App = () => {
         setTasks(sorted);
         setSelectedTask((current) => {
           if (current && sorted.includes(current)) {
+            pendingSelectionRef.current.task = null;
             return current;
           }
+          const pendingTask = pendingSelectionRef.current.task;
+          if (pendingTask && sorted.includes(pendingTask)) {
+            pendingSelectionRef.current.task = null;
+            return pendingTask;
+          }
+          pendingSelectionRef.current.task = null;
           return sorted[0] ?? null;
         });
       })
@@ -118,6 +157,41 @@ const App = () => {
       cancelled = true;
     };
   }, [selectedTask]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || loadingDatasets) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    let changed = false;
+
+    if (selectedDataset) {
+      if (params.get('dataset') !== selectedDataset) {
+        params.set('dataset', selectedDataset);
+        changed = true;
+      }
+    } else if (params.has('dataset')) {
+      params.delete('dataset');
+      changed = true;
+    }
+
+    if (selectedTask) {
+      if (params.get('task') !== selectedTask) {
+        params.set('task', selectedTask);
+        changed = true;
+      }
+    } else if (!loadingTasks && !pendingSelectionRef.current.task && params.has('task')) {
+      params.delete('task');
+      changed = true;
+    }
+
+    if (changed) {
+      const query = params.toString();
+      const newUrl = `${window.location.pathname}${query ? `?${query}` : ''}`;
+      window.history.replaceState(null, '', newUrl);
+    }
+  }, [selectedDataset, selectedTask, loadingDatasets, loadingTasks]);
 
   const datasetOptions = useMemo(() => {
     if (loadingDatasets && datasets.length === 0) {

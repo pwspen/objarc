@@ -71,7 +71,7 @@ const ColorGrid = ({
   return (
     <div className={containerClass}>
       <div
-        className="inline-grid gap-0.5 border border-slate-700 bg-slate-900/60 p-1"
+        className="inline-grid gap-1 border border-slate-700 bg-slate-900/60 p-1"
         style={{
           gridTemplateColumns: `repeat(${templateColumns}, ${cellSize}px)`,
           gridAutoRows: `${cellSize}px`,
@@ -82,7 +82,7 @@ const ColorGrid = ({
               row.map((color, colIndex) => (
                 <div
                   key={`${rowIndex}-${colIndex}`}
-                  className="border border-slate-800"
+                  className=""
                   style={{ backgroundColor: color }}
                 />
               )),

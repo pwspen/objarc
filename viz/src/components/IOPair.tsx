@@ -16,7 +16,7 @@ interface IOPairProps {
 }
 
 const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
-  const heatmaps = useMemo(() => {
+  const heatmapGrids = useMemo(() => {
     if (!showHeatmaps) {
       return null;
     }
@@ -26,23 +26,30 @@ const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
     );
 
     if (missing.length > 0) {
-      throw new Error(
-        `Missing required heatmaps [${missing.join(', ')}] for IO pair ${label ?? ''}`.trim(),
-      );
+      const context = label ? ` for IO pair ${label}` : '';
+      throw new Error(`Missing required heatmaps [${missing.join(', ')}]${context}`);
     }
 
-    return REQUIRED_HEATMAP_KEYS.map((key) => ({
-      key,
-      grid: pair.heatmaps[key as RequiredHeatmapKey],
-    }));
+    return {
+      inputAuto: pair.heatmaps['Input Auto']!,
+      cross: pair.heatmaps['Cross']!,
+      outputAuto: pair.heatmaps['Output Auto']!,
+    };
   }, [pair.heatmaps, showHeatmaps, label]);
 
-  const gridTemplateClass = showHeatmaps
-    ? 'grid-cols-[auto_minmax(12rem,1fr)_minmax(11rem,1fr)]'
-    : 'grid-cols-[auto_minmax(12rem,1fr)]';
+  const shouldShowHeatmaps = Boolean(heatmapGrids);
+
+  const gridTemplateClass = shouldShowHeatmaps
+    ? 'grid-cols-[auto_max-content_minmax(11rem,1fr)]'
+    : 'grid-cols-[auto_max-content]';
 
   return (
     <section className="flex flex-col gap-4 items-center">
+      {label ? (
+        <header>
+          <h2 className="text-lg font-medium text-slate-200">{label}</h2>
+        </header>
+      ) : null}
       <div
         className={`grid ${gridTemplateClass} grid-rows-[auto_auto_auto] items-start gap-x-6 gap-y-4`}
       >
@@ -52,18 +59,18 @@ const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
         <div className="row-start-1 col-start-2">
           <GridData gridData={pair.input.data} />
         </div>
-        {showHeatmaps && heatmaps ? (
+        {shouldShowHeatmaps ? (
           <div className="row-start-1 col-start-3">
-            <HeatmapDisplay label="Input Auto" grid={heatmaps[0].grid} />
+            <HeatmapDisplay label="Input Auto" grid={heatmapGrids.inputAuto} />
           </div>
         ) : null}
-        <div className="row-start-2 flex justify-center text-slate-400">
-          <span className="text-4xl leading-none">↓</span>
-        </div>
+        <span className="row-start-2 col-start-1 place-self-center text-6xl leading-none text-slate-400">
+          ↓
+        </span>
         <div className="row-start-2 col-start-2" aria-hidden="true" />
-        {showHeatmaps && heatmaps ? (
+        {shouldShowHeatmaps ? (
           <div className="row-start-2 col-start-3">
-            <HeatmapDisplay label="Cross" grid={heatmaps[1].grid} />
+            <HeatmapDisplay label="Cross" grid={heatmapGrids.cross} />
           </div>
         ) : null}
         <div className="row-start-3 flex justify-center">
@@ -72,9 +79,9 @@ const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
         <div className="row-start-3 col-start-2">
           <GridData gridData={pair.output.data} />
         </div>
-        {showHeatmaps && heatmaps ? (
+        {shouldShowHeatmaps ? (
           <div className="row-start-3 col-start-3">
-            <HeatmapDisplay label="Output Auto" grid={heatmaps[2].grid} />
+            <HeatmapDisplay label="Output Auto" grid={heatmapGrids.outputAuto} />
           </div>
         ) : null}
       </div>

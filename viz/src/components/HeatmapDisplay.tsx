@@ -14,13 +14,10 @@ interface HeatmapDisplayProps {
   legendMinHeight?: number;
 }
 
-interface HeatmapSummary {
-  rows: number;
-  cols: number;
+interface HeatmapRange {
   min: number;
   max: number;
-  haveData: boolean;
-  longestSide: number;
+  hasData: boolean;
 }
 
 interface ColorStop {
@@ -74,17 +71,14 @@ const interpolateColor = (value: number): string => {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 };
 
-const summarizeValues = (values: number[][]): HeatmapSummary => {
+const summarizeValues = (values: number[][]): HeatmapRange => {
   const rows = values.length;
   const cols = rows > 0 ? values[0]?.length ?? 0 : 0;
   if (rows === 0 || cols === 0) {
     return {
-      rows: 0,
-      cols: 0,
       min: 0,
       max: 0,
-      haveData: false,
-      longestSide: 0,
+      hasData: false,
     };
   }
 
@@ -105,12 +99,9 @@ const summarizeValues = (values: number[][]): HeatmapSummary => {
   }
 
   return {
-    rows,
-    cols,
     min,
     max,
-    haveData: true,
-    longestSide: Math.max(rows, cols),
+    hasData: true,
   };
 };
 
@@ -121,8 +112,21 @@ const formatLegendValue = (value: number) => {
   return value === 0 ? '0' : value.toPrecision(3);
 };
 
-const buildLegendGradient = () =>
-  `linear-gradient(to top, ${COLOR_STOPS.map((stop) => `${stop.hex} ${stop.stop * 100}%`).join(', ')})`;
+const LEGEND_GRADIENT = `linear-gradient(to top, ${COLOR_STOPS.map(
+  (stop) => `${stop.hex} ${stop.stop * 100}%`,
+).join(', ')})`;
+
+const normalizeValue = (value: number, range: HeatmapRange) => {
+  if (!range.hasData) {
+    return 0.5;
+  }
+
+  if (range.max === range.min) {
+    return 0.5;
+  }
+
+  return clamp((value - range.min) / (range.max - range.min), 0, 1);
+};
 
 const HeatmapDisplay = ({
   grid,
@@ -131,47 +135,36 @@ const HeatmapDisplay = ({
   legendMinHeight = DEFAULT_LEGEND_MIN_HEIGHT,
 }: HeatmapDisplayProps) => {
   const values = grid.values ?? [];
-  const summary = useMemo(() => summarizeValues(values), [values]);
 
-  const legendGradient = useMemo(() => buildLegendGradient(), []);
-
-  const midpoint = summary.haveData ? (summary.min + summary.max) / 2 : 0;
-
-  const colors = useMemo(() => {
-    if (!summary.haveData) {
-      return [];
+  const { range, colors } = useMemo(() => {
+    const rangeSummary = summarizeValues(values);
+    if (!rangeSummary.hasData) {
+      return { range: rangeSummary, colors: [] as string[][] };
     }
-    const range = summary.max - summary.min;
-    const normalize = (value: number) => {
-      if (range === 0) {
-        return 0.5;
-      }
-      return clamp((value - summary.min) / range, 0, 1);
-    };
 
-    return values.map((row, rowIndex) =>
-      row.map((value, colIndex) => {
-        const normalized = normalize(value);
-        return interpolateColor(normalized);
-      }),
+    const mappedColors = values.map((row) =>
+      row.map((value) => interpolateColor(normalizeValue(value, rangeSummary))),
     );
-  }, [summary.haveData, summary.max, summary.min, values]);
+    return { range: rangeSummary, colors: mappedColors };
+  }, [values]);
+
+  const midpoint = range.hasData ? (range.min + range.max) / 2 : 0;
 
   return (
     <div className="space-y-2">
       <div className="text-sm font-semibold text-slate-100">{label}</div>
-      {!summary.haveData ? (
+      {!range.hasData ? (
         <div className="text-xs italic text-slate-500">no heatmap data</div>
       ) : (
         <ColorGrid
           colors={colors}
           maxDimension={maxDimension}
           legend={{
-            gradient: legendGradient,
+            gradient: LEGEND_GRADIENT,
             labels: {
-              max: formatLegendValue(summary.max),
+              max: formatLegendValue(range.max),
               mid: formatLegendValue(midpoint),
-              min: formatLegendValue(summary.min),
+              min: formatLegendValue(range.min),
             },
             minHeight: legendMinHeight,
           }}
