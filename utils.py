@@ -38,10 +38,6 @@ def load_tasknames(dataset_name: str) -> list[str]:
 
     print(len(names))
     return names
-    
-print(load_tasknames("ARC-1")[0:5])
-print(load_tasknames("ARC-2")[0:5])
-
 
 def print_prob(prob: ArcTask, test_only: bool = True) -> None:
     train, test = ("Train", prob.train_pairs), ("Test", prob.test_pairs)

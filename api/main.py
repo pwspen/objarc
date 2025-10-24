@@ -1,6 +1,4 @@
-from classes import Grid, ArcTask
-from utils import load_all, load_arc1, load_arc2
-from api import app
+from api.api import app
 import uvicorn
 
 def main():

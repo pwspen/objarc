@@ -6,6 +6,8 @@ from classes import ArcTask
 
 from utils import fft_cross_correlation
 
+# The functionality of this script has been integrated into the frontend
+
 # This is categorical, not numerical
 # So only exact equality matters
 # This is what we want for ARC
