@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 
 import type { HeatmapGrid } from '@/types/api';
 
+import ColorGrid from './ColorGrid';
+
 const DEFAULT_MAX_DIMENSION = 180; // px
 const DEFAULT_LEGEND_MIN_HEIGHT = 96; // px
 
@@ -131,62 +133,49 @@ const HeatmapDisplay = ({
   const values = grid.values ?? [];
   const summary = useMemo(() => summarizeValues(values), [values]);
 
-  const cellSize = useMemo(() => {
-    if (!summary.haveData || summary.longestSide === 0) {
-      return 0;
-    }
-    return maxDimension / summary.longestSide;
-  }, [summary, maxDimension]);
-
   const legendGradient = useMemo(() => buildLegendGradient(), []);
 
   const midpoint = summary.haveData ? (summary.min + summary.max) / 2 : 0;
 
+  const colors = useMemo(() => {
+    if (!summary.haveData) {
+      return [];
+    }
+    const range = summary.max - summary.min;
+    const normalize = (value: number) => {
+      if (range === 0) {
+        return 0.5;
+      }
+      return clamp((value - summary.min) / range, 0, 1);
+    };
+
+    return values.map((row, rowIndex) =>
+      row.map((value, colIndex) => {
+        const normalized = normalize(value);
+        return interpolateColor(normalized);
+      }),
+    );
+  }, [summary.haveData, summary.max, summary.min, values]);
+
   return (
     <div className="space-y-2">
       <div className="text-sm font-semibold text-slate-100">{label}</div>
-      {!summary.haveData || cellSize === 0 ? (
+      {!summary.haveData ? (
         <div className="text-xs italic text-slate-500">no heatmap data</div>
       ) : (
-        <div className="flex flex-row">
-          <div
-            className="inline-grid gap-px border border-slate-800/70 bg-slate-900/60 p-1"
-            style={{
-              gridTemplateColumns: `repeat(${summary.cols}, ${cellSize}px)`,
-              gridAutoRows: `${cellSize}px`,
-            }}
-          >
-            {values.map((row, rowIndex) =>
-              row.map((value, colIndex) => {
-                const normalized =
-                  summary.max === summary.min
-                    ? 0.5
-                    : clamp((value - summary.min) / (summary.max - summary.min), 0, 1);
-                const color = interpolateColor(normalized);
-                return (
-                  <div
-                    key={`${rowIndex}-${colIndex}`}
-                    className="border border-slate-800"
-                    style={{ backgroundColor: color }}
-                    aria-label={`value ${value}`}
-                  />
-                );
-              }),
-            )}
-          </div>
-          <div className="flex items-stretch gap-3">
-            <div
-              className="w-4 shrink-0 rounded"
-              style={{ background: legendGradient, minHeight: legendMinHeight }}
-              aria-hidden="true"
-            />
-            <div className="flex flex-col justify-between text-xs text-slate-300">
-              <span>{formatLegendValue(summary.max)}</span>
-              <span>{formatLegendValue(midpoint)}</span>
-              <span>{formatLegendValue(summary.min)}</span>
-            </div>
-          </div>
-        </div>
+        <ColorGrid
+          colors={colors}
+          maxDimension={maxDimension}
+          legend={{
+            gradient: legendGradient,
+            labels: {
+              max: formatLegendValue(summary.max),
+              mid: formatLegendValue(midpoint),
+              min: formatLegendValue(summary.min),
+            },
+            minHeight: legendMinHeight,
+          }}
+        />
       )}
     </div>
   );
