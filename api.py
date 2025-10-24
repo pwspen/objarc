@@ -79,29 +79,29 @@ class WebTask(BaseModel):
 
 app = FastAPI()
 
-router = APIRouter(prefix="/api")
+api = APIRouter(prefix="/api")
 
-app.include_router(router)
-
-app.add_middleware(CORSMiddleware, 
-                   allow_origins=["http://localhost:5173"], 
-                   allow_methods=["*"],
-                   allow_headers=["*"]
-                   )
-
-@app.get("/datasets", response_model=list[str])
+@api.get("/datasets", response_model=list[str])
 def get_datasets():
     return valid_datasets
 
-@app.get("/datasets/{dataset_name}", response_model=list[str])
+@api.get("/datasets/{dataset_name}", response_model=list[str])
 def get_tasks_in_dataset(dataset_name: str):
     return load_tasknames(dataset_name)
 
-@app.get("/tasks/{taskname}", response_model=WebTask)
+@api.get("/tasks/{taskname}", response_model=WebTask)
 def get_task(taskname: str):
     task = ArcTask.from_name(taskname)
-
     return to_web_task(task)
+
+app.include_router(api, prefix="/arc")  # final paths: /arc/api/...
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "https://synapsomorphy.com"],  # add prod origin
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def to_web_task(task: ArcTask) -> WebTask:
     def to_web_io_pair(pair: ArcIOPair) -> WebIOPair:
