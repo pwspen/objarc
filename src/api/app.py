@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import uvicorn
+
 from .schemas import ColoredGrid, HeatmapGrid, WebGrid, WebGridData, WebIOPair, WebTask
 from .services import get_valid_datasets, load_task_names
 
@@ -64,3 +66,5 @@ def _to_web_task(task: ArcTask) -> WebTask:
 
 
 app = create_app()
+
+uvicorn.run(app, host="127.0.0.1", port=8010)
