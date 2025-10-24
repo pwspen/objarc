@@ -3,7 +3,7 @@ Description=Arc FastAPI App
 After=network.target
 
 [Service]
-Type=notify
+Type=simple
 User=www-data
 WorkingDirectory=/var/www/arc
 Environment="PATH=/var/www/arc/.venv/bin"
