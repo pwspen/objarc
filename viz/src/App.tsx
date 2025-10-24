@@ -14,6 +14,7 @@ const App = () => {
   const [loadingDatasets, setLoadingDatasets] = useState(false);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [loadingTask, setLoadingTask] = useState(false);
+  const [showHeatmaps, setShowHeatmaps] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +246,15 @@ const App = () => {
             >
               Random
             </button>
+            <label className="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-100">
+              <input
+                type="checkbox"
+                checked={showHeatmaps}
+                onChange={(event) => setShowHeatmaps(event.target.checked)}
+                className="h-4 w-4 mr-2"
+              />
+              Show correlation heatmaps
+            </label>
           </div>
         </header>
 
@@ -260,7 +270,7 @@ const App = () => {
               Loading task…
             </div>
           ) : (
-            <TaskView task={task} />
+            <TaskView task={task} showHeatmaps={showHeatmaps} />
           )}
         </main>
       </div>

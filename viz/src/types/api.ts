@@ -20,9 +20,16 @@ export interface WebGrid {
   data: WebGridData;
 }
 
+export interface HeatmapGrid {
+  values: number[][];
+}
+
+export type HeatmapCollection = Record<string, HeatmapGrid>;
+
 export interface WebIOPair {
   input: WebGrid;
   output: WebGrid;
+  heatmaps: HeatmapCollection;
 }
 
 export interface WebTask {

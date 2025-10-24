@@ -23,11 +23,21 @@ const CELL_SIZE = `${CELL_SIZE_REM}rem`;
 
 const GridCells = ({ grid }: GridCellsProps) => {
   const rows = grid.cells;
+  const displayRows = useMemo(
+    () =>
+      rows.length === 0
+        ? rows
+        : rows
+            .slice()
+            .reverse()
+            .map((row) => row.slice().reverse()),
+    [rows],
+  );
   const palette = useMemo(
     () => ({ ...defaultPalette, ...grid.palette }),
     [grid.palette],
   );
-  const columnCount = rows[0]?.length ?? 0;
+  const columnCount = displayRows[0]?.length ?? 0;
   const effectiveColumns = columnCount > 0 ? columnCount : 1;
   const resolveColor = (value: number) =>
     palette[value.toString()] ?? defaultPalette['0'];
@@ -47,7 +57,7 @@ const GridCells = ({ grid }: GridCellsProps) => {
           style={{ ...emptyCellStyle, backgroundColor: defaultPalette['0'] }}
         />
       ) : null}
-      {rows.map((row, rowIndex) =>
+      {displayRows.map((row, rowIndex) =>
         row.map((value, colIndex) => {
           const key = `${rowIndex}-${colIndex}`;
           return (

@@ -3,9 +3,10 @@ import { WebTask } from '@/types/api';
 
 interface TaskViewProps {
   task: WebTask | null;
+  showHeatmaps: boolean;
 }
 
-const TaskView = ({ task }: TaskViewProps) => {
+const TaskView = ({ task, showHeatmaps }: TaskViewProps) => {
   if (!task) {
     return (
       <div className="flex h-full items-center justify-center text-slate-400">
@@ -16,9 +17,9 @@ const TaskView = ({ task }: TaskViewProps) => {
 
   return (
     <div className="space-y-12">
-      <Pairs pairs={task.train} name="Train"/>
+      <Pairs pairs={task.train} name="Train" showHeatmaps={showHeatmaps} />
       <div className="border-t border-slate-700" />
-      <Pairs pairs={task.test} name="Test" />
+      <Pairs pairs={task.test} name="Test" showHeatmaps={showHeatmaps} />
     </div>
   );
 };

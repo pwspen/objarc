@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from classes import ArcDataset, ArcTask, ArcIOPair, Grid
-from utils import load_tasknames, valid_datasets, get_grid_stats
+from utils import load_tasknames, valid_datasets, get_grid_stats, fft_cross_correlation
 import numpy as np
 
 arc_colors = {
@@ -65,9 +65,13 @@ class WebGrid(BaseModel):
     cells: ColoredGrid
     data: WebGridData
 
+class HeatmapGrid(BaseModel):
+    values: list[list[float]]
+
 class WebIOPair(BaseModel):
     input: WebGrid
     output: WebGrid
+    heatmaps: dict[str, HeatmapGrid]
 
 class WebTask(BaseModel):
     train: list[WebIOPair]
@@ -98,9 +102,19 @@ def get_task(taskname: str):
 def to_web_task(task: ArcTask) -> WebTask:
     def to_web_io_pair(pair: ArcIOPair) -> WebIOPair:
         inp, out = pair.to_lists()
+
+        inp_auto = fft_cross_correlation(pair.input, pair.input, center=True)["matches"]
+        cross = fft_cross_correlation(pair.input, pair.output, center=True)["matches"]
+        out_auto = fft_cross_correlation(pair.output, pair.output, center=True)["matches"]
+
         return WebIOPair(
             input=WebGrid(cells=ColoredGrid(cells=inp), data=WebGridData(data=get_grid_stats(pair.input))),
             output=WebGrid(cells=ColoredGrid(cells=out), data=WebGridData(data=get_grid_stats(pair.output))),
+            heatmaps={
+                "Input Auto": HeatmapGrid(values=inp_auto.tolist()),
+                "Cross": HeatmapGrid(values=cross.tolist()),
+                "Output Auto": HeatmapGrid(values=out_auto.tolist()),
+            },
         )
     
     web_train = [to_web_io_pair(pair) for pair in task.train_pairs]
