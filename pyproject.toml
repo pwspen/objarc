@@ -1,15 +1,15 @@
 [project]
-name = "objarc"
+name = "objarc-backend"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Core ARC data models and utilities for objarc."
+readme = "../../README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.119.1",
-    "ipykernel>=6.30.1",
-    "ipython>=9.5.0",
-    "ipywidgets>=8.1.7",
-    "matplotlib>=3.10.6",
-    "numpy>=2.3.3",
-    "uvicorn>=0.38.0",
+    "numpy>=2.3",
+    "fastapi>=0.119",
+    "pydantic>=2.7",
+    "uvicorn>=0.38",
+    "objarc-backend>=0.1.0",
+    "matplotlib>=3.10.7",
+    "scipy>=1.16.2",
 ]

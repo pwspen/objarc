@@ -1,11 +1,9 @@
-import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-from classes import ArcTask
+from src.backend import ArcTask, fft_cross_correlation
 
-from utils import fft_cross_correlation
-
+# This script was just  for testing
 # The functionality of this script has been integrated into the frontend
 
 # This is categorical, not numerical

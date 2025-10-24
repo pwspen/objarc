@@ -1,4 +1,4 @@
-from api.api import app
+from src.api import app
 import uvicorn
 
 def main():

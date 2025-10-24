@@ -2,8 +2,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 
-from classes import ArcDataset, ArcTask, ArcIOPair, Grid
-from utils import load_tasknames, valid_datasets, get_grid_stats, fft_cross_correlation
+from src.backend import ArcDataset, ArcTask, ArcIOPair, Grid, get_grid_stats, fft_cross_correlation
+from src.api.services import load_task_names, get_valid_datasets
 import numpy as np
 
 arc_colors = {
@@ -83,11 +83,11 @@ api = APIRouter(prefix="/api")
 
 @api.get("/datasets", response_model=list[str])
 def get_datasets():
-    return valid_datasets
+    return get_valid_datasets()
 
 @api.get("/datasets/{dataset_name}", response_model=list[str])
 def get_tasks_in_dataset(dataset_name: str):
-    return load_tasknames(dataset_name)
+    return load_task_names(dataset_name)
 
 @api.get("/tasks/{taskname}", response_model=WebTask)
 def get_task(taskname: str):
