@@ -1,19 +1,23 @@
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
-from .constants import DEFAULT_DATASET_ROOT_ENV
 from .models import ArcDataset
 
 
+_LOADER_FILE = Path(__file__).resolve()
+# This module lives at `<repo>/src/backend/loaders.py`; the bundled datasets sit in `<repo>/tasks`.
+_DEFAULT_DATASET_ROOT = (_LOADER_FILE.parents[2] / "tasks").resolve()
+
+
 def _resolve_dataset_root(root: str | Path | None = None) -> Path:
-    if root is not None:
-        return Path(root).expanduser().resolve()
-    env_root = os.getenv(DEFAULT_DATASET_ROOT_ENV)
-    if env_root:
-        return Path(env_root).expanduser().resolve()
-    return Path(__file__).resolve().parents[4] / "arc"
+    if root is None:
+        return _DEFAULT_DATASET_ROOT
+    candidate = Path(root).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    # Relative paths are resolved against the directory containing `loaders.py`.
+    return (_LOADER_FILE.parent / candidate).resolve()
 
 
 def _ensure_exists(path: Path) -> Path:

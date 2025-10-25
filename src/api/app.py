@@ -8,7 +8,7 @@ import uvicorn
 from .schemas import ColoredGrid, HeatmapGrid, WebGrid, WebGridData, WebIOPair, WebTask
 from .services import get_valid_datasets, load_task_names
 
-from src.backend import ArcIOPair, ArcTask, fft_cross_correlation, get_grid_stats
+from src.backend import ArcIOPair, ArcTask, auto_correlation, cross_correlation, get_grid_stats
 
 
 def create_app() -> FastAPI:
@@ -46,9 +46,9 @@ def _to_web_task(task: ArcTask) -> WebTask:
         fft_inp = pair.input.copy() + 1
         fft_out = pair.output.copy() + 1
 
-        inp_auto = fft_cross_correlation(fft_inp, fft_inp, center=True)["matches"]
-        cross = fft_cross_correlation(fft_inp, fft_out, center=True)["matches"]
-        out_auto = fft_cross_correlation(fft_out, fft_out, center=True)["matches"]
+        inp_auto = auto_correlation(fft_inp)
+        cross = cross_correlation(fft_inp, fft_out)
+        out_auto = auto_correlation(fft_out)
 
         return WebIOPair(
             input=WebGrid(cells=ColoredGrid(cells=inp), data=WebGridData(data=get_grid_stats(pair.input))),

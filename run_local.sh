@@ -4,10 +4,10 @@
 trap 'kill 0' SIGINT
 
 # Start frontend in background
-(cd ~/objarc/viz && npm run dev) &
+(cd ~/objarc/viz && VITE_API_BASE_URL=http://localhost:8010/arc/api npm run dev) &
 
 # Start backend in background
-(cd ~/objarc/api && uv run app.py) &
+(cd ~/objarc && uv run python -m src.api.app) &
 
 # Wait for all background jobs
 wait

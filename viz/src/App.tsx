@@ -39,7 +39,7 @@ const App = () => {
   const [loadingDatasets, setLoadingDatasets] = useState(true);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [loadingTask, setLoadingTask] = useState(false);
-  const [showHeatmaps, setShowHeatmaps] = useState(false);
+  const [showHeatmaps, setShowHeatmaps] = useState(true);
   const pendingSelectionRef = useRef<SelectionState>(parseInitialSelection());
 
   useEffect(() => {
