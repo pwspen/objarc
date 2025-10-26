@@ -115,3 +115,8 @@ def find_regions(img: np.ndarray, connectivity: int = 8) -> list[np.ndarray]:
         regions.append(mask[r1:r2, c1:c2])
     
     return regions
+
+def calc_symmetries(img: np.ndarray) -> dict[str, float]:
+    names = ["90ccw", "180ccw", "270ccw", "flip", "flip+90ccw", "flip+180ccw", "flip+270ccw"]
+    transforms = get_other_d4(img)
+    return {name: best_matchscore(img, sym) for name, sym in zip(names, transforms)}

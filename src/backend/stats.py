@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 import numpy as np
-
+from .analysis import calc_symmetries
+from .print_mat import print_matrix
 
 def shannon_entropy(grid: np.ndarray) -> float:
     values, counts = np.unique(grid, return_counts=True)
@@ -80,5 +79,6 @@ def get_grid_stats(grid: np.ndarray) -> dict:
             "Shannon": shannon,
             "Naive cost": shannon * grid.size,
             "N-gram (bits)": ngram_ent,
-        }
+        },
+        "Symmetry matches": calc_symmetries(grid)
     }

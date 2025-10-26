@@ -25,11 +25,12 @@ export interface HeatmapGrid {
 }
 
 export type HeatmapCollection = Record<string, HeatmapGrid>;
+export type HeatmapSets = Record<string, HeatmapCollection>;
 
 export interface WebIOPair {
   input: WebGrid;
   output: WebGrid;
-  heatmaps: HeatmapCollection;
+  heatmap_sets: HeatmapSets;
 }
 
 export interface WebTask {

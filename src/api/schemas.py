@@ -71,7 +71,7 @@ class HeatmapGrid(BaseModel):
 class WebIOPair(BaseModel):
     input: WebGrid
     output: WebGrid
-    heatmaps: Dict[str, HeatmapGrid]
+    heatmap_sets: Dict[str, Dict[str, HeatmapGrid]]
 
 
 class WebTask(BaseModel):

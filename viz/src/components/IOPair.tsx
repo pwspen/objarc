@@ -5,14 +5,18 @@ import GridData from '@/components/GridData';
 import HeatmapDisplay from '@/components/HeatmapDisplay';
 import { HeatmapGrid, WebIOPair } from '@/types/api';
 
-const REQUIRED_HEATMAP_KEYS = ['Input Auto', 'Cross', 'Output Auto'] as const;
+const HEATMAP_MATCHERS = [
+  { id: 'inputAuto', term: 'input auto', label: 'Input Auto' },
+  { id: 'cross', term: 'cross', label: 'Cross' },
+  { id: 'outputAuto', term: 'output auto', label: 'Output Auto' },
+] as const;
 
-type RequiredHeatmapKey = (typeof REQUIRED_HEATMAP_KEYS)[number];
+type HeatmapMatcher = (typeof HEATMAP_MATCHERS)[number];
 
 interface IOPairProps {
   pair: WebIOPair;
   label?: string;
-  showHeatmaps: boolean;
+  selectedHeatmapSet: string | null;
 }
 
 interface HeatmapGrids {
@@ -21,27 +25,57 @@ interface HeatmapGrids {
   outputAuto: HeatmapGrid;
 }
 
-const IOPair = ({ pair, label, showHeatmaps }: IOPairProps) => {
+const IOPair = ({ pair, label, selectedHeatmapSet }: IOPairProps) => {
   const heatmapGrids = useMemo<HeatmapGrids | null>(() => {
-    if (!showHeatmaps) {
+    if (!selectedHeatmapSet) {
       return null;
     }
 
-    const missing = REQUIRED_HEATMAP_KEYS.filter(
-      (key) => pair.heatmaps[key as RequiredHeatmapKey] === undefined,
-    );
-
-    if (missing.length > 0) {
+    const heatmapSets = pair.heatmap_sets ?? {};
+    const selectedSet = heatmapSets[selectedHeatmapSet];
+    if (!selectedSet) {
       const context = label ? ` for IO pair ${label}` : '';
-      throw new Error(`Missing required heatmaps [${missing.join(', ')}]${context}`);
+      throw new Error(`Unknown heatmap set "${selectedHeatmapSet}"${context}`);
+    }
+
+    const entries = Object.entries(selectedSet);
+    if (entries.length > 3) {
+      const context = label ? ` for IO pair ${label}` : '';
+      throw new Error(`Heatmap set "${selectedHeatmapSet}"${context} contains more than 3 heatmaps`);
+    }
+
+    const normalizedEntries = entries.map(([key, value]) => ({
+      originalKey: key,
+      normalized: key.toLowerCase(),
+      value,
+    }));
+    const usedKeys = new Set<string>();
+    const matchedGrids: Record<HeatmapMatcher['id'], HeatmapGrid | undefined> = {
+      inputAuto: undefined,
+      cross: undefined,
+      outputAuto: undefined,
+    };
+
+    for (const matcher of HEATMAP_MATCHERS) {
+      const match = normalizedEntries.find(
+        (entry) => entry.normalized.includes(matcher.term) && !usedKeys.has(entry.originalKey),
+      );
+      if (!match) {
+        const context = label ? ` for IO pair ${label}` : '';
+        throw new Error(
+          `Missing required "${matcher.label}" heatmap in set "${selectedHeatmapSet}"${context}`,
+        );
+      }
+      usedKeys.add(match.originalKey);
+      matchedGrids[matcher.id] = match.value;
     }
 
     return {
-      inputAuto: pair.heatmaps['Input Auto']!,
-      cross: pair.heatmaps['Cross']!,
-      outputAuto: pair.heatmaps['Output Auto']!,
+      inputAuto: matchedGrids.inputAuto!,
+      cross: matchedGrids.cross!,
+      outputAuto: matchedGrids.outputAuto!,
     };
-  }, [pair.heatmaps, showHeatmaps, label]);
+  }, [pair.heatmap_sets, selectedHeatmapSet, label]);
 
   const gridTemplateClass = heatmapGrids
     ? 'grid-cols-[auto_max-content_minmax(11rem,1fr)]'

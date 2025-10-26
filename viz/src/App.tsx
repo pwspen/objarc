@@ -39,7 +39,7 @@ const App = () => {
   const [loadingDatasets, setLoadingDatasets] = useState(true);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [loadingTask, setLoadingTask] = useState(false);
-  const [showHeatmaps, setShowHeatmaps] = useState(true);
+  const [selectedHeatmapSet, setSelectedHeatmapSet] = useState<string | null>(null);
   const pendingSelectionRef = useRef<SelectionState>(parseInitialSelection());
 
   useEffect(() => {
@@ -84,6 +84,7 @@ const App = () => {
       setTasks([]);
       setSelectedTask(null);
       setTask(null);
+      setSelectedHeatmapSet(null);
       return;
     }
 
@@ -131,12 +132,14 @@ const App = () => {
   useEffect(() => {
     if (!selectedTask) {
       setTask(null);
+      setSelectedHeatmapSet(null);
       return;
     }
 
     let cancelled = false;
     setLoadingTask(true);
     setError(null);
+    setSelectedHeatmapSet(null);
 
     fetchTask(selectedTask)
       .then((data) => {
@@ -221,6 +224,32 @@ const App = () => {
       </option>
     ));
   }, [tasks, loadingTasks]);
+
+  const heatmapSetNames = useMemo(() => {
+    if (!task) {
+      return [] as string[];
+    }
+    const collected = new Set<string>();
+    const collect = (pairs: WebTask['train']) => {
+      for (const pair of pairs) {
+        if (!pair.heatmap_sets) {
+          continue;
+        }
+        for (const name of Object.keys(pair.heatmap_sets)) {
+          collected.add(name);
+        }
+      }
+    };
+    collect(task.train);
+    collect(task.test);
+    return [...collected].sort((a, b) => a.localeCompare(b));
+  }, [task]);
+
+  useEffect(() => {
+    if (selectedHeatmapSet && !heatmapSetNames.includes(selectedHeatmapSet)) {
+      setSelectedHeatmapSet(null);
+    }
+  }, [heatmapSetNames, selectedHeatmapSet]);
 
   const selectTaskByOffset = useCallback(
     (offset: number) => {
@@ -320,15 +349,27 @@ const App = () => {
             >
               Random
             </button>
-            <label className="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-100">
-              <input
-                type="checkbox"
-                checked={showHeatmaps}
-                onChange={(event) => setShowHeatmaps(event.target.checked)}
-                className="h-4 w-4 mr-2"
-              />
-              Show correlation heatmaps
-            </label>
+            <div className="flex flex-col gap-1">
+              <label
+                htmlFor="heatmap-set-select"
+                className="text-xs uppercase tracking-wide text-slate-400"
+              >
+                Heatmaps
+              </label>
+              <select
+                id="heatmap-set-select"
+                value={selectedHeatmapSet ?? ''}
+                onChange={(event) => setSelectedHeatmapSet(event.target.value || null)}
+                className="min-w-[12rem] rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+              >
+                <option value="">None</option>
+                {heatmapSetNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </header>
 
@@ -344,7 +385,7 @@ const App = () => {
               Loading task…
             </div>
           ) : (
-            <TaskView task={task} showHeatmaps={showHeatmaps} />
+            <TaskView task={task} selectedHeatmapSet={selectedHeatmapSet} />
           )}
         </main>
       </div>
