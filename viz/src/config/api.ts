@@ -4,9 +4,9 @@ const deriveDefaultBaseUrl = () => {
   const baseUrl = import.meta.env.BASE_URL ?? '/';
   const trimmedBase = baseUrl.replace(/\/+$/, '');
   if (trimmedBase.length === 0) {
-    return '/api';
+    return '/arc/api';
   }
-  return `${trimmedBase}/api`;
+  return `${trimmedBase}/arc/api`;
 };
 
 const resolveBaseUrl = (): string => {

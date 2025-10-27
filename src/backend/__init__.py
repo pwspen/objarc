@@ -3,7 +3,7 @@ Core ARC data models and utilities shared by the ObjARC codebase.
 """
 
 from .constants import MAX_GRID_DIM, MAX_NUM_COLORS
-from .analysis import auto_correlation, cross_correlation, EMPTY_COLOR
+from .analysis import auto_correlation, cross_correlation, entropy_filter, EMPTY_COLOR
 from .loaders import load_all, load_arc1, load_arc2
 from .models import (
     ArcDataset,
@@ -32,5 +32,6 @@ __all__ = [
     "ngram_entropy",
     "shannon_entropy",
     "print_matrix",
+    "entropy_filter",
     "EMPTY_COLOR"
     ]

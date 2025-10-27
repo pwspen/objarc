@@ -1,15 +1,19 @@
-export type Palette = Record<string, string>;
+export type Palette = Record<number, string> & Record<string, string>;
 
 export interface ColoredGrid {
   cells: number[][];
   palette?: Palette;
+  width: number;
+  height: number;
 }
 
-export type MetricValue = number | MetricDictionary;
+export type MetricPrimitive = number | string | boolean | null;
 
 export interface MetricDictionary {
   [key: string]: MetricValue;
 }
+
+export type MetricValue = MetricPrimitive | MetricDictionary;
 
 export interface WebGridData {
   data: MetricDictionary;

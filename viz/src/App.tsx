@@ -132,14 +132,12 @@ const App = () => {
   useEffect(() => {
     if (!selectedTask) {
       setTask(null);
-      setSelectedHeatmapSet(null);
       return;
     }
 
     let cancelled = false;
     setLoadingTask(true);
     setError(null);
-    setSelectedHeatmapSet(null);
 
     fetchTask(selectedTask)
       .then((data) => {
@@ -246,10 +244,13 @@ const App = () => {
   }, [task]);
 
   useEffect(() => {
-    if (selectedHeatmapSet && !heatmapSetNames.includes(selectedHeatmapSet)) {
+    if (!task || !selectedHeatmapSet) {
+      return;
+    }
+    if (!heatmapSetNames.includes(selectedHeatmapSet)) {
       setSelectedHeatmapSet(null);
     }
-  }, [heatmapSetNames, selectedHeatmapSet]);
+  }, [heatmapSetNames, selectedHeatmapSet, task]);
 
   const selectTaskByOffset = useCallback(
     (offset: number) => {

@@ -1,11 +1,14 @@
 import numpy as np
 from scipy import ndimage
+from numpy.lib.stride_tricks import sliding_window_view
+from .print_mat import print_matrix
 
 EMPTY_COLOR = 0
 
 def fft_cross_correlation(
     image_a: np.ndarray,
     image_b: np.ndarray,
+    enforce_color_range: bool = True
 ) -> np.ndarray:
     h_a, w_a = image_a.shape
     h_b, w_b = image_b.shape
@@ -13,7 +16,7 @@ def fft_cross_correlation(
 
     unique_colors = np.union1d(np.unique(image_a), np.unique(image_b))
     unique_colors = unique_colors[unique_colors != EMPTY_COLOR]
-    if np.any((unique_colors < 1) | (unique_colors > 10)):
+    if enforce_color_range and np.any((unique_colors < 1) | (unique_colors > 10)):
         bad = unique_colors[(unique_colors < 1) | (unique_colors > 10)]
         raise ValueError(f"Color values out of expected range 1-10: {bad}")
 
@@ -36,13 +39,13 @@ def fft_cross_correlation(
     return matches
 
 def auto_correlation(image: np.ndarray, center: bool = True) -> np.ndarray:
-    corr = fft_cross_correlation(image, image)
+    corr = fft_cross_correlation(image, image, enforce_color_range=False)
     if center:
         corr = np.fft.fftshift(corr)
     return corr
 
 def cross_correlation(image_a: np.ndarray, image_b: np.ndarray, center: bool = True) -> np.ndarray:
-    corr = fft_cross_correlation(image_a, image_b)
+    corr = fft_cross_correlation(image_a, image_b, enforce_color_range=False)
     if center:
         corr = np.fft.fftshift(corr)
     return corr
@@ -117,6 +120,56 @@ def find_regions(img: np.ndarray, connectivity: int = 8) -> list[np.ndarray]:
     return regions
 
 def calc_symmetries(img: np.ndarray) -> dict[str, float]:
-    names = ["90ccw", "180ccw", "270ccw", "flip", "flip+90ccw", "flip+180ccw", "flip+270ccw"]
+    names = ["90ccw", "180ccw", "270ccw", "horiz_flip", "horiz_flip+90ccw", "vert_flip", "vert_flip+90ccw"]
     transforms = get_other_d4(img)
     return {name: best_matchscore(img, sym) for name, sym in zip(names, transforms)}
+
+def entropy_filter(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """
+    Compute Shannon entropy (base-2) over each valid placement of `mask` on `image`.
+
+    - image: 2D integer array (H, W), <= 30x30, <= 10 unique values.
+    - mask:  2D array (Mh, Mw) of 0/1 entries.
+    - Returns: 2D float32 array of shape (H - Mh + 1, W - Mw + 1).
+    """
+    if image.ndim != 2 or mask.ndim != 2:
+        raise ValueError("Both `image` and `mask` must be 2D arrays.")
+
+    H, W = image.shape
+    Mh, Mw = mask.shape
+    out_h, out_w = H - Mh + 1, W - Mw + 1
+    if out_h <= 0 or out_w <= 0:
+        print_matrix(image)
+        print_matrix(mask)
+        raise ValueError("Mask must not be larger than image in any dimension (valid mode).")
+
+    # Ensure binary mask
+    mask = (mask != 0).astype(np.uint8)
+    mask_sum = int(mask.sum())
+    if mask_sum == 0:
+        return np.zeros((out_h, out_w), dtype=np.float32)
+
+    # Map image values to compact [0, K-1]
+    vals, inv = np.unique(image, return_inverse=True)
+    inv = inv.reshape(H, W)
+    K = vals.size
+
+    # One-hot encode (H, W, K)
+    oh = np.eye(K, dtype=np.uint8)[inv]
+
+    # Window the spatial axes; result shape is (out_h, out_w, K, Mh, Mw)
+    windows = sliding_window_view(oh, window_shape=(Mh, Mw), axis=(0, 1))
+
+    # Move K to the last axis -> (out_h, out_w, Mh, Mw, K)
+    windows = np.moveaxis(windows, 2, -1)
+
+    # Apply mask and sum over window axes -> counts per class: (out_h, out_w, K)
+    counts = (windows * mask[None, None, :, :, None]).sum(axis=(2, 3), dtype=np.int32)
+
+    # Probabilities and entropy
+    p = counts.astype(np.float32) / float(mask_sum)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        term = np.where(counts > 0, p * np.log2(p), 0.0)
+    H_win = -term.sum(axis=-1, dtype=np.float32)
+
+    return H_win.astype(np.float32)
