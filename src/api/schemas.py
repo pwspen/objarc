@@ -1,10 +1,6 @@
-from __future__ import annotations
-
-from typing import Dict, List
-
 from pydantic import BaseModel, Field, model_validator
 
-DEFAULT_ARC_COLORS: Dict[int, str] = {
+DEFAULT_ARC_COLORS: dict[int, str] = {
     0: "#000000",  # Black
     1: "#0000FF",  # Blue
     2: "#FF0000",  # Red
@@ -19,8 +15,8 @@ DEFAULT_ARC_COLORS: Dict[int, str] = {
 
 
 class ColoredGrid(BaseModel):
-    cells: List[List[int]] = Field(..., description="Cell values in row-major order")
-    palette: Dict[int, str] = Field(default_factory=lambda: DEFAULT_ARC_COLORS.copy(), description="Mapping of cell values to hex colors")
+    cells: list[list[int]] = Field(..., description="Cell values in row-major order")
+    palette: dict[int, str] = Field(default_factory=lambda: DEFAULT_ARC_COLORS.copy(), description="Mapping of cell values to hex colors")
     width: int | None = None
     height: int | None = None
 
@@ -65,15 +61,15 @@ class WebGrid(BaseModel):
 
 
 class HeatmapGrid(BaseModel):
-    values: List[List[float]]
+    values: list[list[float]]
 
 
 class WebIOPair(BaseModel):
     input: WebGrid
     output: WebGrid
-    heatmap_sets: Dict[str, Dict[str, HeatmapGrid]]
+    heatmap_sets: dict[str, dict[str, HeatmapGrid]]
 
 
 class WebTask(BaseModel):
-    train: List[WebIOPair]
-    test: List[WebIOPair]
+    train: list[WebIOPair]
+    test: list[WebIOPair]

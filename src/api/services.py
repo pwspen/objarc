@@ -1,6 +1,6 @@
 from typing import List
 from functools import lru_cache
-from ..backend import ArcDataset, load_all, load_arc1, load_arc2
+from backend import ArcDataset, load_all, load_arc1, load_arc2
 
 VALID_DATASETS: List[str] = ["all", "ARC-1", "ARC-2", "ARC-1-train", "ARC-1-test", "ARC-2-train", "ARC-2-test"]
 

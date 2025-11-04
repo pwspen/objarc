@@ -10,6 +10,8 @@ npm run build
 cd /var/www/arc
 uv venv .venv
 uv sync
+
+cd /var/www/arc/src/api/
 sudo cp arc.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable arc

@@ -7,10 +7,10 @@ import uvicorn
 
 import numpy as np
 
-from .schemas import ColoredGrid, HeatmapGrid, WebGrid, WebGridData, WebIOPair, WebTask
-from .services import get_valid_datasets, load_task_names
+from api.schemas import ColoredGrid, HeatmapGrid, WebGrid, WebGridData, WebIOPair, WebTask
+from api.services import get_valid_datasets, load_task_names
 
-from src.backend import ArcIOPair, ArcTask, auto_correlation, cross_correlation, get_grid_stats, print_matrix, EMPTY_COLOR, entropy_filter
+from backend import ArcIOPair, ArcTask, auto_correlation, cross_correlation, get_grid_stats, print_matrix, EMPTY_COLOR, entropy_filter
 
 
 def create_app() -> FastAPI:
@@ -110,4 +110,4 @@ def _to_web_task(task: ArcTask) -> WebTask:
 
 app = create_app()
 
-uvicorn.run(app, host="127.0.0.1", port=8010)
+# uvicorn.run(app, host="127.0.0.1", port=8010)
