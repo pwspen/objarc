@@ -1,15 +1,17 @@
 [Unit]
 Description=Arc FastAPI App
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/var/www/arc
-Environment="PATH=/var/www/arc/.venv/bin"
-ExecStart=/var/www/arc/.venv/bin/uvicorn api:app --host 127.0.0.1 --port 8010 --proxy-headers --forwarded-allow-ips="*" --root-path /var/www/arc/src
-
-Restart=always
+Group=www-data
+WorkingDirectory=/var/www/arc/src
+Environment="PATH=/var/www/arc/.venv/bin:/usr/bin"
+# Using python -m uvicorn avoids any shebang/exec edge cases
+ExecStart=/var/www/arc/.venv/bin/uvicorn api:app --host 127.0.0.1 --port 8010 --proxy-headers --forwarded-allow-ips=*
+Restart=on-failure
 RestartSec=5
 
 [Install]
