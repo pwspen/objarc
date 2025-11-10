@@ -1,6 +1,6 @@
 Backend use:
 
-```
+```python
 from models import ArcDataset, ArcTask, ArcIOPair
 from loaders import load_arc1, load_arc2, load_all
 from utils import print_matrix
@@ -16,3 +16,4 @@ train, test = task.train_pairs, task.test_pairs # Both list[ArcIOPair]
 inp, out = test[0] # Both 2D np.ndarray
 
 print_matrix(inp) # Prints colored grid in terminal for debugging
+```
