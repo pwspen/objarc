@@ -12,7 +12,7 @@ from .models import (
     ArcTask,
     Grid,
 )
-from .print_mat import print_matrix
+from .utils import print_matrix
 from .stats import get_grid_stats, ngram_entropy, shannon_entropy
 
 __all__ = [

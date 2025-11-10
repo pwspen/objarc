@@ -1,6 +1,6 @@
 import numpy as np
 from .analysis import calc_symmetries
-from .print_mat import print_matrix
+from .utils import print_matrix
 
 def shannon_entropy(grid: np.ndarray) -> float:
     values, counts = np.unique(grid, return_counts=True)

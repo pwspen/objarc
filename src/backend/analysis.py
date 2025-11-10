@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import ndimage
 from numpy.lib.stride_tricks import sliding_window_view
-from .print_mat import print_matrix
+from .utils import print_matrix
 
 EMPTY_COLOR = 0
 
