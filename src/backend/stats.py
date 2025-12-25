@@ -1,7 +1,7 @@
 import numpy as np
-from analysis import calc_symmetries
-from utils import print_matrix
-from rect import find_best_rectangle, RectResult
+from .analysis import calc_symmetries
+from .utils import print_matrix
+from .rect import find_best_rectangle, RectResult
 
 
 def shannon_entropy(grid: np.ndarray) -> float:
@@ -72,7 +72,7 @@ def rectize(grid: np.ndarray, sentinel: int = -1) -> list[RectResult]:
     grid = grid.copy()
 
     rects = []
-    while len(np.unique(grid[grid != sentinel])) > 2:
+    while len(np.unique(grid[grid != sentinel])) > 1:
         result = find_best_rectangle(grid, sentinel=sentinel)
         if result is None or result.score <= 0.0:
             break

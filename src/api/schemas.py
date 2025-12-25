@@ -37,11 +37,11 @@ class ColoredGrid(BaseModel):
     def validate_all(self):
         cells = self.cells
         palette = self.palette
-        if len(palette) > 10:
-            raise ValueError("Palette can have at most 10 colors")
+        if len(palette) > 11:
+            raise ValueError("Palette can have at most 11 colors")
         for key, color in palette.items():
-            if not isinstance(key, int) or key < 0 or key > 9:
-                raise ValueError("Palette keys must be integers 0-9")
+            if not isinstance(key, int) or key < -1 or key > 9:
+                raise ValueError("Palette keys must be integers -1 to 9")
             if not (
                 isinstance(color, str) and color.startswith("#") and len(color) == 7
             ):

@@ -143,7 +143,7 @@ def _to_web_task(task: ArcTask) -> WebTask:
                 ),
             }
         )
-
+        print(inp)
         return WebIOPair(
             input=WebGrid(
                 cells=ColoredGrid(cells=inp),
