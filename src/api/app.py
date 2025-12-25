@@ -68,19 +68,34 @@ filters = {
 }
 
 def ent_heatmaps(image_a: np.ndarray, image_b: np.ndarray, filters: dict[str, np.ndarray]) -> dict[str, dict[str, HeatmapGrid]]:
-
+    labels = ["Input", "Output"]
+    EMPTY_GRID = HeatmapGrid(values=[])
     results = {}
+    ents = []
     for name, filt in filters.items():
-        key = f"Entropy: {name}"
-        ent_a = entropy_filter(image_a, filt)
-        ent_b = entropy_filter(image_b, filt)
+        ent_key = f"Entropy: {name}"
+        results[ent_key] = {}
+        filters_valid = True
+        for img, label in [(image_a, labels[0]), (image_b, labels[1])]:
+            imshape = img.shape
+            fishape = filt.shape
+            if imshape[0] < fishape[0] or imshape[1] < fishape[1]:
+                filters_valid = False
+                results[ent_key][label] = EMPTY_GRID
+            else:
+                ent = entropy_filter(img, filt)
+                ents.append(ent)
+                results[ent_key][label] = HeatmapGrid(values=ent.tolist())
 
-        results[key] = {}
-        results[key]["Input"] = HeatmapGrid(values=ent_a.tolist())
-        results[key]["Output"] = HeatmapGrid(values=ent_b.tolist())
-
-        key = f"Correlation: {name} entropy"
-        results[key] = heatmaps(ent_a, ent_b, remove_most_common=False)
+        ent_corr_key = f"Correlation: {name} entropy"
+        if filters_valid:
+            results[ent_corr_key] = heatmaps(ents[0], ents[1], remove_most_common=False)
+        else:
+            results[ent_corr_key] = {
+                "Input Auto": EMPTY_GRID,
+                "Cross": EMPTY_GRID,
+                "Output Auto": EMPTY_GRID,
+            }
 
     return results
 
@@ -110,4 +125,11 @@ def _to_web_task(task: ArcTask) -> WebTask:
 
 app = create_app()
 
-# uvicorn.run(app, host="127.0.0.1", port=8010)
+if __name__ == "__main__":
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=8010,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )

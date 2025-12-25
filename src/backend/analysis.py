@@ -139,6 +139,8 @@ def entropy_filter(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
     Mh, Mw = mask.shape
     out_h, out_w = H - Mh + 1, W - Mw + 1
     if out_h <= 0 or out_w <= 0:
+        print("Image smaller than mask")
+        return np.zeros((0, 0))
         print_matrix(image)
         print_matrix(mask)
         raise ValueError("Mask must not be larger than image in any dimension (valid mode).")

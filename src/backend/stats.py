@@ -62,6 +62,7 @@ def ngram_entropy(grid: np.ndarray, ngram_mask: np.ndarray, *, color_invariance:
     return float(entropy)
 
 
+
 def get_grid_stats(grid: np.ndarray) -> dict:
     masks = {
         "vert_2x1": np.array([[1], [1]]),
