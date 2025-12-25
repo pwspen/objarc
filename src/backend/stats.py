@@ -83,7 +83,9 @@ def rectize(grid: np.ndarray, sentinel: int = -1) -> list[RectResult]:
     return rects
 
 
-def get_grid_stats(grid: np.ndarray) -> dict:
+def get_grid_stats(grid: np.ndarray, *, rects: list[RectResult] | None = None) -> dict:
+    rect_list = rects if rects is not None else rectize(grid)
+
     masks = {
         "vert_2x1": np.array([[1], [1]]),
         "horiz_2x1": np.array([[1, 1]]),
@@ -96,7 +98,7 @@ def get_grid_stats(grid: np.ndarray) -> dict:
     ngram_ent = {name: ngram_entropy(grid, mask) for name, mask in masks.items()}
 
     return {
-        "Rects": len(rectize(grid)),
+        # "Rects": len(rect_list),
         #     "Entropy (bits)": {
         #         "Shannon": shannon,
         #         "Naive cost": shannon * grid.size,

@@ -13,6 +13,7 @@ from api.schemas import (
     WebGrid,
     WebGridData,
     WebIOPair,
+    WebRect,
     WebTask,
 )
 from api.services import get_valid_datasets, load_task_names
@@ -27,6 +28,7 @@ from backend import (
     EMPTY_COLOR,
     entropy_filter,
 )
+from backend.stats import rectize
 
 
 def create_app() -> FastAPI:
@@ -144,14 +146,44 @@ def _to_web_task(task: ArcTask) -> WebTask:
             }
         )
         print(inp)
+
+        input_rects = rectize(pair.input)
+        output_rects = rectize(pair.output)
+
         return WebIOPair(
             input=WebGrid(
                 cells=ColoredGrid(cells=inp),
-                data=WebGridData(data=get_grid_stats(pair.input)),
+                data=WebGridData(data=get_grid_stats(pair.input, rects=input_rects)),
+                rects=[
+                    WebRect(
+                        r1=r.r1,
+                        c1=r.c1,
+                        r2=r.r2,
+                        c2=r.c2,
+                        color=r.color,
+                        area=r.area,
+                        score=r.score,
+                    )
+                    for r in input_rects
+                ],
             ),
             output=WebGrid(
                 cells=ColoredGrid(cells=out),
-                data=WebGridData(data=get_grid_stats(pair.output)),
+                data=WebGridData(
+                    data=get_grid_stats(pair.output, rects=output_rects)
+                ),
+                rects=[
+                    WebRect(
+                        r1=r.r1,
+                        c1=r.c1,
+                        r2=r.r2,
+                        c2=r.c2,
+                        color=r.color,
+                        area=r.area,
+                        score=r.score,
+                    )
+                    for r in output_rects
+                ],
             ),
             heatmap_sets=all_heatmaps,
         )

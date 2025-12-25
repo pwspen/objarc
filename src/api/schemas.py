@@ -63,9 +63,20 @@ class WebGridData(BaseModel):
     data: dict
 
 
+class WebRect(BaseModel):
+    r1: int
+    c1: int
+    r2: int
+    c2: int
+    color: int | None = None
+    area: int | None = None
+    score: float | None = None
+
+
 class WebGrid(BaseModel):
     cells: ColoredGrid
     data: WebGridData
+    rects: list[WebRect] = Field(default_factory=list)
 
 
 class HeatmapGrid(BaseModel):

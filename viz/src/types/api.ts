@@ -19,9 +19,20 @@ export interface WebGridData {
   data: MetricDictionary;
 }
 
+export interface GridRect {
+  r1: number;
+  c1: number;
+  r2: number;
+  c2: number;
+  color?: number;
+  area?: number;
+  score?: number;
+}
+
 export interface WebGrid {
   cells: ColoredGrid;
   data: WebGridData;
+  rects: GridRect[];
 }
 
 export interface HeatmapGrid {

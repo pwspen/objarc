@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 
 import GridCells from '@/components/GridCells';
 import GridData from '@/components/GridData';
+import Grid from '@/components/Grid';
 import HeatmapDisplay from '@/components/HeatmapDisplay';
 import { HeatmapGrid, WebIOPair } from '@/types/api';
 
@@ -76,12 +77,7 @@ const IOPair = ({ pair, label, selectedHeatmapSet }: IOPairProps) => {
       <div
         className={`grid ${gridTemplateClass} grid-rows-[auto_auto_auto] items-start gap-x-6 gap-y-4`}
       >
-        <div className="row-start-1 flex justify-center">
-          <GridCells grid={pair.input.cells} />
-        </div>
-        <div className="row-start-1 col-start-2">
-          <GridData gridData={pair.input.data} />
-        </div>
+        <Grid grid={pair.input} />
         {hasHeatmaps && heatmapGrids?.inputAuto ? (
           <div className="row-start-1 col-start-3">
             <HeatmapDisplay label="Input Auto" grid={heatmapGrids.inputAuto} />
@@ -97,10 +93,7 @@ const IOPair = ({ pair, label, selectedHeatmapSet }: IOPairProps) => {
           </div>
         ) : null}
         <div className="row-start-3 flex justify-center">
-          <GridCells grid={pair.output.cells} />
-        </div>
-        <div className="row-start-3 col-start-2">
-          <GridData gridData={pair.output.data} />
+          <Grid grid={pair.output} />
         </div>
         {hasHeatmaps && heatmapGrids?.outputAuto ? (
           <div className="row-start-3 col-start-3">
