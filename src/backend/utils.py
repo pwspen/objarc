@@ -5,10 +5,10 @@ import numpy as np
 # Colors are (R, G, B), 0-255
 _COLORMAPS = {
     "viridis": [
-        (68, 1, 84),     # dark purple
-        (59, 82, 139),   # blue
+        (68, 1, 84),  # dark purple
+        (59, 82, 139),  # blue
         (33, 145, 140),  # teal
-        (94, 201, 97),   # green
+        (94, 201, 97),  # green
         (253, 231, 37),  # yellow
     ],
     "magma": [
@@ -18,7 +18,7 @@ _COLORMAPS = {
         (196, 72, 60),
         (252, 253, 191),
     ],
-    "coolwarm": [        # diverging: blue -> white -> red
+    "coolwarm": [  # diverging: blue -> white -> red
         (59, 76, 192),
         (120, 141, 214),
         (190, 205, 232),
@@ -30,8 +30,10 @@ _COLORMAPS = {
 
 _RESET = "\x1b[0m"
 
+
 def _lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
+
 
 def _interp_palette(palette, t: float) -> Tuple[int, int, int]:
     # t in [0,1]
@@ -48,19 +50,24 @@ def _interp_palette(palette, t: float) -> Tuple[int, int, int]:
     b = int(round(_lerp(palette[i][2], palette[j][2], local_t)))
     return (r, g, b)
 
+
 def _ansi_bg(r: int, g: int, b: int) -> str:
     return f"\x1b[48;2;{r};{g};{b}m"
 
+
 def _ansi_fg(r: int, g: int, b: int) -> str:
     return f"\x1b[38;2;{r};{g};{b}m"
+
 
 def _luminance(r: int, g: int, b: int) -> float:
     # Relative luminance approximation for text contrast
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
+
 def _format_number(x: float, precision: Optional[int], is_int: bool) -> str:
     if not np.isfinite(x):
-        if np.isnan(x): return "NaN"
+        if np.isnan(x):
+            return "NaN"
         return "+Inf" if x > 0 else "-Inf"
     if is_int:
         return str(int(round(x)))
@@ -71,6 +78,7 @@ def _format_number(x: float, precision: Optional[int], is_int: bool) -> str:
         return f"{x:.2e}"
     # default fixed with 3 decimals
     return f"{x:.3f}"
+
 
 def print_matrix(
     arr: np.ndarray,
@@ -159,7 +167,11 @@ def print_matrix(
                 r, g, b = _interp_palette(palette, t)
                 bg = _ansi_bg(r, g, b)
                 # High contrast text (black on bright bg, white otherwise)
-                fg = _ansi_fg(0, 0, 0) if _luminance(r, g, b) > 140 else _ansi_fg(255, 255, 255)
+                fg = (
+                    _ansi_fg(0, 0, 0)
+                    if _luminance(r, g, b) > 140
+                    else _ansi_fg(255, 255, 255)
+                )
             else:
                 r, g, b = na_bg
                 bg = _ansi_bg(*na_bg)
@@ -191,4 +203,6 @@ def print_matrix(
     print(tick_line)
 
     # Size / dtype
-    print(f"shape={arr2.shape}, dtype={arr2.dtype}, finite_range=[{_fmt_tick(vmin)}, {_fmt_tick(vmax)}], cmap={cmap}, center_zero={center_zero}")
+    print(
+        f"shape={arr2.shape}, dtype={arr2.dtype}, finite_range=[{_fmt_tick(vmin)}, {_fmt_tick(vmax)}], cmap={cmap}, center_zero={center_zero}"
+    )

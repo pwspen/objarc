@@ -7,10 +7,26 @@ import uvicorn
 
 import numpy as np
 
-from api.schemas import ColoredGrid, HeatmapGrid, WebGrid, WebGridData, WebIOPair, WebTask
+from api.schemas import (
+    ColoredGrid,
+    HeatmapGrid,
+    WebGrid,
+    WebGridData,
+    WebIOPair,
+    WebTask,
+)
 from api.services import get_valid_datasets, load_task_names
 
-from backend import ArcIOPair, ArcTask, auto_correlation, cross_correlation, get_grid_stats, print_matrix, EMPTY_COLOR, entropy_filter
+from backend import (
+    ArcIOPair,
+    ArcTask,
+    auto_correlation,
+    cross_correlation,
+    get_grid_stats,
+    print_matrix,
+    EMPTY_COLOR,
+    entropy_filter,
+)
 
 
 def create_app() -> FastAPI:
@@ -40,16 +56,18 @@ def create_app() -> FastAPI:
     )
     return app
 
-def heatmaps_arr(image_a: np.ndarray, image_b: np.ndarray) -> list[np.ndarray]:
 
+def heatmaps_arr(image_a: np.ndarray, image_b: np.ndarray) -> list[np.ndarray]:
     inp_auto = auto_correlation(image_a, center=True)
     cross = cross_correlation(image_a, image_b, center=True)
     out_auto = auto_correlation(image_b, center=True)
 
     return [inp_auto, cross, out_auto]
 
-def heatmaps(image_a: np.ndarray, image_b: np.ndarray, remove_most_common: bool = False) -> dict[str, HeatmapGrid]:
 
+def heatmaps(
+    image_a: np.ndarray, image_b: np.ndarray, remove_most_common: bool = False
+) -> dict[str, HeatmapGrid]:
     if remove_most_common:
         image_a, image_b = image_a.copy(), image_b.copy()
         for img in [image_a, image_b]:
@@ -58,7 +76,11 @@ def heatmaps(image_a: np.ndarray, image_b: np.ndarray, remove_most_common: bool 
             img[img == most_common] = EMPTY_COLOR
 
     names = ["Input Auto", "Cross", "Output Auto"]
-    return {name: HeatmapGrid(values=hm.tolist()) for name, hm in zip(names, heatmaps_arr(image_a, image_b))}
+    return {
+        name: HeatmapGrid(values=hm.tolist())
+        for name, hm in zip(names, heatmaps_arr(image_a, image_b))
+    }
+
 
 filters = {
     "2x2": np.array([[1, 1], [1, 1]]),
@@ -67,7 +89,10 @@ filters = {
     "3x3": np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]]),
 }
 
-def ent_heatmaps(image_a: np.ndarray, image_b: np.ndarray, filters: dict[str, np.ndarray]) -> dict[str, dict[str, HeatmapGrid]]:
+
+def ent_heatmaps(
+    image_a: np.ndarray, image_b: np.ndarray, filters: dict[str, np.ndarray]
+) -> dict[str, dict[str, HeatmapGrid]]:
     labels = ["Input", "Output"]
     EMPTY_GRID = HeatmapGrid(values=[])
     results = {}
@@ -99,6 +124,7 @@ def ent_heatmaps(image_a: np.ndarray, image_b: np.ndarray, filters: dict[str, np
 
     return results
 
+
 def _to_web_task(task: ArcTask) -> WebTask:
     def to_web_io_pair(pair: ArcIOPair) -> WebIOPair:
         inp, out = pair.to_lists()
@@ -107,15 +133,27 @@ def _to_web_task(task: ArcTask) -> WebTask:
         fft_out = pair.output.copy() + 1
 
         all_heatmaps = ent_heatmaps(fft_inp, fft_out, filters)
-        all_heatmaps.update({
-            "Correlation: naive": heatmaps(fft_inp, fft_out, remove_most_common=False),
-            "Correlation: Most common removed": heatmaps(fft_inp, fft_out, remove_most_common=True),
-        })
+        all_heatmaps.update(
+            {
+                "Correlation: naive": heatmaps(
+                    fft_inp, fft_out, remove_most_common=False
+                ),
+                "Correlation: Most common removed": heatmaps(
+                    fft_inp, fft_out, remove_most_common=True
+                ),
+            }
+        )
 
         return WebIOPair(
-            input=WebGrid(cells=ColoredGrid(cells=inp), data=WebGridData(data=get_grid_stats(pair.input))),
-            output=WebGrid(cells=ColoredGrid(cells=out), data=WebGridData(data=get_grid_stats(pair.output))),
-            heatmap_sets=all_heatmaps
+            input=WebGrid(
+                cells=ColoredGrid(cells=inp),
+                data=WebGridData(data=get_grid_stats(pair.input)),
+            ),
+            output=WebGrid(
+                cells=ColoredGrid(cells=out),
+                data=WebGridData(data=get_grid_stats(pair.output)),
+            ),
+            heatmap_sets=all_heatmaps,
         )
 
     web_train = [to_web_io_pair(pair) for pair in task.train_pairs]

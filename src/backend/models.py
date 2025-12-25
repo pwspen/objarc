@@ -24,16 +24,22 @@ class ArcIOPair:
         if not self.onehot and (self.input.ndim != 2 or self.output.ndim != 2):
             raise ArcModelError("Input and output must be 2-dimensional numpy arrays.")
         if any(dim > MAX_GRID_DIM for dim in (*self.input.shape, *self.output.shape)):
-            raise ArcModelError(f"Dimensions of input and output arrays must not exceed {MAX_GRID_DIM}.")
+            raise ArcModelError(
+                f"Dimensions of input and output arrays must not exceed {MAX_GRID_DIM}."
+            )
         if any(
             color < 0 or color >= MAX_NUM_COLORS
             for grid in (self.input, self.output)
             for color in np.unique(grid)
         ):
-            raise ArcModelError(f"Colors in input and output arrays must be in the range [0, {MAX_NUM_COLORS - 1}].")
+            raise ArcModelError(
+                f"Colors in input and output arrays must be in the range [0, {MAX_NUM_COLORS - 1}]."
+            )
 
     @classmethod
-    def from_lists(cls, input_list: list[list[int]], output_list: list[list[int]]) -> "ArcIOPair":
+    def from_lists(
+        cls, input_list: list[list[int]], output_list: list[list[int]]
+    ) -> "ArcIOPair":
         input_array = np.array(input_list, dtype=int)
         output_array = np.array(output_list, dtype=int)
         return cls(input_array, output_array)
@@ -57,8 +63,13 @@ class ArcTask:
         name = Path(filepath).stem
         if len(name) != 8:
             raise ArcModelError(f"Task name must be 8 characters long, got '{name}'")
-        train_pairs = [ArcIOPair.from_lists(pair["input"], pair["output"]) for pair in data["train"]]
-        test_pairs = [ArcIOPair.from_lists(pair["input"], pair["output"]) for pair in data["test"]]
+        train_pairs = [
+            ArcIOPair.from_lists(pair["input"], pair["output"])
+            for pair in data["train"]
+        ]
+        test_pairs = [
+            ArcIOPair.from_lists(pair["input"], pair["output"]) for pair in data["test"]
+        ]
         return cls(name=name, train_pairs=train_pairs, test_pairs=test_pairs)
 
     @classmethod
@@ -75,6 +86,7 @@ class ArcTask:
                     return problem
         raise ArcModelError(f"Problem with name '{name}' not found in ARC datasets.")
 
+
 @dataclass
 class ArcDataset:
     name: str
@@ -89,7 +101,9 @@ class ArcDataset:
         for subset_name in ("training", "evaluation"):
             subset_path = directory_path / subset_name
             if not subset_path.is_dir():
-                raise ArcModelError(f"Expected directory '{subset_path}' in dataset '{directory_path}'.")
+                raise ArcModelError(
+                    f"Expected directory '{subset_path}' in dataset '{directory_path}'."
+                )
             for filepath in sorted(subset_path.glob("*.json")):
                 problem = ArcTask.from_file(filepath)
                 if subset_name == "training":
@@ -97,7 +111,9 @@ class ArcDataset:
                 else:
                     evaluation.append(problem)
         if not training or not evaluation:
-            raise ArcModelError("Both training and evaluation datasets must contain at least one problem.")
+            raise ArcModelError(
+                "Both training and evaluation datasets must contain at least one problem."
+            )
         return cls(name=str(directory_path), training=training, evaluation=evaluation)
 
     def len(self) -> str:
@@ -110,10 +126,14 @@ class ArcDataset:
         for prob in self.training + self.evaluation:
             if prob.name == name:
                 return prob
-        raise ArcModelError(f"Problem with name '{name}' not found in dataset '{self.name}'")
+        raise ArcModelError(
+            f"Problem with name '{name}' not found in dataset '{self.name}'"
+        )
+
 
 BoolArray2D = npt.NDArray[np.bool_]
 GridArray = npt.NDArray[np.int_]
+
 
 @dataclass
 class Grid:

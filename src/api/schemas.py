@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, model_validator
 
 DEFAULT_ARC_COLORS: dict[int, str] = {
+    -1: "#FFFFFF",  # White (Mask)
     0: "#000000",  # Black
     1: "#0000FF",  # Blue
     2: "#FF0000",  # Red
@@ -16,7 +17,10 @@ DEFAULT_ARC_COLORS: dict[int, str] = {
 
 class ColoredGrid(BaseModel):
     cells: list[list[int]] = Field(..., description="Cell values in row-major order")
-    palette: dict[int, str] = Field(default_factory=lambda: DEFAULT_ARC_COLORS.copy(), description="Mapping of cell values to hex colors")
+    palette: dict[int, str] = Field(
+        default_factory=lambda: DEFAULT_ARC_COLORS.copy(),
+        description="Mapping of cell values to hex colors",
+    )
     width: int | None = None
     height: int | None = None
 
@@ -38,7 +42,9 @@ class ColoredGrid(BaseModel):
         for key, color in palette.items():
             if not isinstance(key, int) or key < 0 or key > 9:
                 raise ValueError("Palette keys must be integers 0-9")
-            if not (isinstance(color, str) and color.startswith("#") and len(color) == 7):
+            if not (
+                isinstance(color, str) and color.startswith("#") and len(color) == 7
+            ):
                 raise ValueError(f"Invalid hex color: {color}")
 
         max_dim = 30
@@ -47,7 +53,9 @@ class ColoredGrid(BaseModel):
 
         for val in (cell for row in cells for cell in row):
             if val not in palette.keys():
-                raise ValueError(f"Cell value {val} not in palette (keys: {list(palette.keys())})")
+                raise ValueError(
+                    f"Cell value {val} not in palette (keys: {list(palette.keys())})"
+                )
         return self
 
 

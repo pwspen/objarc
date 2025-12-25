@@ -33,5 +33,5 @@ __all__ = [
     "shannon_entropy",
     "print_matrix",
     "entropy_filter",
-    "EMPTY_COLOR"
-    ]
+    "EMPTY_COLOR",
+]

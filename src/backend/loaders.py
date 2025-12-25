@@ -45,7 +45,9 @@ def load_all(*, root: str | Path | None = None) -> ArcDataset:
     return ArcDataset(name="all", training=training, evaluation=evaluation)
 
 
-def load_named_datasets(names: Iterable[str], *, root: str | Path | None = None) -> list[ArcDataset]:
+def load_named_datasets(
+    names: Iterable[str], *, root: str | Path | None = None
+) -> list[ArcDataset]:
     datasets = []
     for name in names:
         if name == "ARC-1":

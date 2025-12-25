@@ -1,6 +1,8 @@
 import numpy as np
-from .analysis import calc_symmetries
-from .utils import print_matrix
+from analysis import calc_symmetries
+from utils import print_matrix
+from rect import find_best_rectangle, RectResult
+
 
 def shannon_entropy(grid: np.ndarray) -> float:
     values, counts = np.unique(grid, return_counts=True)
@@ -8,9 +10,13 @@ def shannon_entropy(grid: np.ndarray) -> float:
     return float(-np.sum(probabilities * np.log2(probabilities)))
 
 
-def ngram_entropy(grid: np.ndarray, ngram_mask: np.ndarray, *, color_invariance: bool = False) -> float:
+def ngram_entropy(
+    grid: np.ndarray, ngram_mask: np.ndarray, *, color_invariance: bool = False
+) -> float:
     if not np.all(np.isin(ngram_mask, [0, 1])):
-        raise ValueError("ngram_mask must be a binary array (containing only 0s and 1s).")
+        raise ValueError(
+            "ngram_mask must be a binary array (containing only 0s and 1s)."
+        )
 
     mask_positions = np.argwhere(ngram_mask == 1)
     if len(mask_positions) == 0:
@@ -62,6 +68,20 @@ def ngram_entropy(grid: np.ndarray, ngram_mask: np.ndarray, *, color_invariance:
     return float(entropy)
 
 
+def rectize(grid: np.ndarray, sentinel: int = -1) -> list[RectResult]:
+    grid = grid.copy()
+
+    rects = []
+    while len(np.unique(grid[grid != sentinel])) > 2:
+        result = find_best_rectangle(grid, sentinel=sentinel)
+        if result is None or result.score <= 0.0:
+            break
+        rects.append(result)
+        grid[result.r1 : result.r2 + 1, result.c1 : result.c2 + 1] = sentinel
+
+    print(rects)
+    return rects
+
 
 def get_grid_stats(grid: np.ndarray) -> dict:
     masks = {
@@ -76,10 +96,11 @@ def get_grid_stats(grid: np.ndarray) -> dict:
     ngram_ent = {name: ngram_entropy(grid, mask) for name, mask in masks.items()}
 
     return {
-        "Entropy (bits)": {
-            "Shannon": shannon,
-            "Naive cost": shannon * grid.size,
-            "N-gram (bits)": ngram_ent,
-        },
-        "Symmetry matches": calc_symmetries(grid)
+        "Rects": len(rectize(grid)),
+        #     "Entropy (bits)": {
+        #         "Shannon": shannon,
+        #         "Naive cost": shannon * grid.size,
+        #         "N-gram (bits)": ngram_ent,
+        #     },
+        #     "Symmetry matches": calc_symmetries(grid),
     }
