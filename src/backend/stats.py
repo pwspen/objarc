@@ -1,7 +1,7 @@
 import numpy as np
 from .analysis import calc_symmetries
 from .utils import print_matrix
-from .rect import find_best_rectangle, RectResult
+from .rect import find_best_rectangle, RectResult, _build_indices, _find_best_rectangle_core
 
 
 def shannon_entropy(grid: np.ndarray) -> float:
@@ -69,15 +69,30 @@ def ngram_entropy(
 
 
 def rectize(grid: np.ndarray, sentinel: int = -1) -> list[RectResult]:
-    grid = grid.copy()
+    work = grid.copy()
+    rects: list[RectResult] = []
+    if work.size == 0:
+        return rects
 
-    rects = []
-    while len(np.unique(grid[grid != sentinel])) > 1:
-        result = find_best_rectangle(grid, sentinel=sentinel)
+    indices = _build_indices(work.shape[1])
+
+    while True:
+        remaining_colors = np.unique(work[work != sentinel])
+        if remaining_colors.size <= 1:
+            break
+        result = _find_best_rectangle_core(
+            work,
+            sentinel,
+            False,
+            True,
+            0.0,
+            None,
+            indices,
+        )
         if result is None or result.score <= 0.0:
             break
         rects.append(result)
-        grid[result.r1 : result.r2 + 1, result.c1 : result.c2 + 1] = sentinel
+        work[result.r1 : result.r2 + 1, result.c1 : result.c2 + 1] = sentinel
 
     print(rects)
     return rects

@@ -169,9 +169,7 @@ def _to_web_task(task: ArcTask) -> WebTask:
             ),
             output=WebGrid(
                 cells=ColoredGrid(cells=out),
-                data=WebGridData(
-                    data=get_grid_stats(pair.output, rects=output_rects)
-                ),
+                data=WebGridData(data=get_grid_stats(pair.output, rects=output_rects)),
                 rects=[
                     WebRect(
                         r1=r.r1,
