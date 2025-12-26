@@ -82,11 +82,142 @@ def _build_prefix_sums(
     return color_values, ps_color, ps_valid
 
 
+@dataclass(frozen=True)
+class _BlockedPrefixes:
+    up_valid: NDArray[np.int32]
+    down_valid: NDArray[np.int32]
+    left_valid: NDArray[np.int32]
+    right_valid: NDArray[np.int32]
+    up_color: NDArray[np.int32]
+    down_color: NDArray[np.int32]
+    left_color: NDArray[np.int32]
+    right_color: NDArray[np.int32]
+
+
+def _build_blocked_prefixes(
+    grid: NDArray[np.integer],
+    sentinel_mask: NDArray[np.int32],
+    valid_mask: NDArray[np.int32],
+    color_values: NDArray[np.int64],
+    *,
+    include_diagonals: bool,
+) -> _BlockedPrefixes:
+    """
+    Prefix sums for border cells that touch (inside) sentinel cells.
+    Shapes:
+      - *_valid: up/down -> (H, W+1), left/right -> (W, H+1)
+      - *_color: up/down -> (K, H, W+1), left/right -> (K, W, H+1)
+    """
+    H, W = grid.shape
+    K = int(color_values.size)
+
+    up_valid = np.zeros((H, W + 1), dtype=np.int32)
+    down_valid = np.zeros((H, W + 1), dtype=np.int32)
+    left_valid = np.zeros((W, H + 1), dtype=np.int32)
+    right_valid = np.zeros((W, H + 1), dtype=np.int32)
+
+    up_color = np.zeros((K, H, W + 1), dtype=np.int32)
+    down_color = np.zeros((K, H, W + 1), dtype=np.int32)
+    left_color = np.zeros((K, W, H + 1), dtype=np.int32)
+    right_color = np.zeros((K, W, H + 1), dtype=np.int32)
+
+    expand_cols = include_diagonals and W > 1
+    expand_rows = include_diagonals and H > 1
+
+    # Top/bottom strips (prefix along columns)
+    for r in range(H):
+        sent_row = sentinel_mask[r].astype(bool, copy=False)
+        if expand_cols:
+            adj_row = sent_row.copy()
+            adj_row[:-1] |= sent_row[1:]
+            adj_row[1:] |= sent_row[:-1]
+        else:
+            adj_row = sent_row
+
+        if r - 1 >= 0:
+            blocked_valid = (valid_mask[r - 1].astype(bool, copy=False) & adj_row).astype(
+                np.int32, copy=False
+            )
+            up_valid[r, 1:] = blocked_valid.cumsum()
+
+            row_above = grid[r - 1]
+            blocked_up_colors = (
+                (row_above[None, :] == color_values[:, None]) & adj_row[None, :]
+            )
+            up_color[:, r, 1:] = blocked_up_colors.astype(np.int32, copy=False).cumsum(
+                axis=1
+            )
+
+        if r + 1 < H:
+            blocked_valid = (valid_mask[r + 1].astype(bool, copy=False) & adj_row).astype(
+                np.int32, copy=False
+            )
+            down_valid[r, 1:] = blocked_valid.cumsum()
+
+            row_below = grid[r + 1]
+            blocked_down_colors = (
+                (row_below[None, :] == color_values[:, None]) & adj_row[None, :]
+            )
+            down_color[:, r, 1:] = blocked_down_colors.astype(np.int32, copy=False).cumsum(
+                axis=1
+            )
+
+    # Left/right strips (prefix along rows)
+    for c in range(W):
+        sent_col = sentinel_mask[:, c].astype(bool, copy=False)
+        if expand_rows:
+            adj_col = sent_col.copy()
+            adj_col[:-1] |= sent_col[1:]
+            adj_col[1:] |= sent_col[:-1]
+        else:
+            adj_col = sent_col
+
+        if c - 1 >= 0:
+            blocked_valid = (valid_mask[:, c - 1].astype(bool, copy=False) & adj_col).astype(
+                np.int32, copy=False
+            )
+            left_valid[c, 1:] = blocked_valid.cumsum()
+
+            col_left = grid[:, c - 1]
+            blocked_left_colors = (
+                (col_left[None, :] == color_values[:, None]) & adj_col[None, :]
+            )
+            left_color[:, c, 1:] = blocked_left_colors.astype(np.int32, copy=False).cumsum(
+                axis=1
+            )
+
+        if c + 1 < W:
+            blocked_valid = (valid_mask[:, c + 1].astype(bool, copy=False) & adj_col).astype(
+                np.int32, copy=False
+            )
+            right_valid[c, 1:] = blocked_valid.cumsum()
+
+            col_right = grid[:, c + 1]
+            blocked_right_colors = (
+                (col_right[None, :] == color_values[:, None]) & adj_col[None, :]
+            )
+            right_color[:, c, 1:] = blocked_right_colors.astype(np.int32, copy=False).cumsum(
+                axis=1
+            )
+
+    return _BlockedPrefixes(
+        up_valid=up_valid,
+        down_valid=down_valid,
+        left_valid=left_valid,
+        right_valid=right_valid,
+        up_color=up_color,
+        down_color=down_color,
+        left_color=left_color,
+        right_color=right_color,
+    )
+
+
 def find_best_rectangle(
     grid: NDArray[np.integer],
     *,
     sentinel: int = -1,
     include_diagonals: bool = False,
+    exclude_adjacent_to_sentinel: bool = True,
     denom_zero_score: float = 0.0,
     colors: Optional[NDArray[np.integer]] = None,
 ) -> Optional[RectResult]:
@@ -103,6 +234,8 @@ def find_best_rectangle(
       - include_diagonals=False: 4-neighbor outside strips (N/S/E/W).
       - include_diagonals=True: 8-neighbor ring = (expanded-by-1 rectangle) minus rectangle,
         clipped to bounds, excluding sentinel.
+      - If exclude_adjacent_to_sentinel is True, border cells touching interior sentinel
+        cells are omitted from denom/same (according to the chosen neighborhood).
 
     Score:
         score = 1 - same/denom
@@ -120,6 +253,9 @@ def find_best_rectangle(
         grid: (H, W) integer grid.
         sentinel: special value to ignore (inside and on border).
         include_diagonals: whether to use 8-neighbor border ring.
+        exclude_adjacent_to_sentinel: drop border cells that touch sentinel cells
+            inside the rectangle (uses 4- vs 8-neighbor adjacency to match
+            include_diagonals).
         denom_zero_score: score used when denom == 0.
         colors: optional list/array of allowed real colors (excluding sentinel). If None,
                 inferred from grid.
@@ -141,10 +277,23 @@ def find_best_rectangle(
         # Grid contains only sentinel (or colors list empty after removing sentinel)
         return None
 
-    best: Optional[RectResult] = None
-
     # Precompute a non-sentinel mask once (used for quick single-row strips).
     valid_mask = (grid != sentinel).astype(np.int32, copy=False)
+    sentinel_mask = (grid == sentinel).astype(np.int32, copy=False)
+
+    blocked = (
+        _build_blocked_prefixes(
+            grid,
+            sentinel_mask,
+            valid_mask,
+            color_values,
+            include_diagonals=include_diagonals,
+        )
+        if exclude_adjacent_to_sentinel
+        else None
+    )
+
+    best: Optional[RectResult] = None
 
     for r1 in range(H):
         for r2 in range(r1, H):
@@ -229,7 +378,57 @@ def find_best_rectangle(
                                 + ps_color[chosen_i, er1, ec1]
                             )
                             same = int(expanded_k - inside_k)
-                            score = 1.0 - (same / denom)
+
+                            if blocked is not None:
+                                if r1 - 1 >= 0:
+                                    bvalid = int(
+                                        blocked.up_valid[r1, ec2 + 1]
+                                        - blocked.up_valid[r1, ec1]
+                                    )
+                                    bsame = int(
+                                        blocked.up_color[chosen_i, r1, ec2 + 1]
+                                        - blocked.up_color[chosen_i, r1, ec1]
+                                    )
+                                    denom -= bvalid
+                                    same -= bsame
+                                if r2 + 1 < H:
+                                    bvalid = int(
+                                        blocked.down_valid[r2, ec2 + 1]
+                                        - blocked.down_valid[r2, ec1]
+                                    )
+                                    bsame = int(
+                                        blocked.down_color[chosen_i, r2, ec2 + 1]
+                                        - blocked.down_color[chosen_i, r2, ec1]
+                                    )
+                                    denom -= bvalid
+                                    same -= bsame
+                                if c1 - 1 >= 0:
+                                    bvalid = int(
+                                        blocked.left_valid[c1, r2 + 1]
+                                        - blocked.left_valid[c1, r1]
+                                    )
+                                    bsame = int(
+                                        blocked.left_color[chosen_i, c1, r2 + 1]
+                                        - blocked.left_color[chosen_i, c1, r1]
+                                    )
+                                    denom -= bvalid
+                                    same -= bsame
+                                if c2 + 1 < W:
+                                    bvalid = int(
+                                        blocked.right_valid[c2, r2 + 1]
+                                        - blocked.right_valid[c2, r1]
+                                    )
+                                    bsame = int(
+                                        blocked.right_color[chosen_i, c2, r2 + 1]
+                                        - blocked.right_color[chosen_i, c2, r1]
+                                    )
+                                    denom -= bvalid
+                                    same -= bsame
+
+                            if denom <= 0:
+                                score = float(denom_zero_score)
+                            else:
+                                score = 1.0 - (same / denom)
                     else:
                         same = 0
                         denom = 0
@@ -257,9 +456,55 @@ def find_best_rectangle(
                             denom += int(band_valid_cols[c2 + 1])
                             same += int(band_color_cols[chosen_i, c2 + 1])
 
+                        if blocked is not None:
+                            if top_valid_prefix is not None:
+                                bvalid = int(
+                                    blocked.up_valid[r1, c2 + 1]
+                                    - blocked.up_valid[r1, c1]
+                                )
+                                bsame = int(
+                                    blocked.up_color[chosen_i, r1, c2 + 1]
+                                    - blocked.up_color[chosen_i, r1, c1]
+                                )
+                                denom -= bvalid
+                                same -= bsame
+                            if bottom_valid_prefix is not None:
+                                bvalid = int(
+                                    blocked.down_valid[r2, c2 + 1]
+                                    - blocked.down_valid[r2, c1]
+                                )
+                                bsame = int(
+                                    blocked.down_color[chosen_i, r2, c2 + 1]
+                                    - blocked.down_color[chosen_i, r2, c1]
+                                )
+                                denom -= bvalid
+                                same -= bsame
+                            if c1 - 1 >= 0:
+                                bvalid = int(
+                                    blocked.left_valid[c1, r2 + 1]
+                                    - blocked.left_valid[c1, r1]
+                                )
+                                bsame = int(
+                                    blocked.left_color[chosen_i, c1, r2 + 1]
+                                    - blocked.left_color[chosen_i, c1, r1]
+                                )
+                                denom -= bvalid
+                                same -= bsame
+                            if c2 + 1 < W:
+                                bvalid = int(
+                                    blocked.right_valid[c2, r2 + 1]
+                                    - blocked.right_valid[c2, r1]
+                                )
+                                bsame = int(
+                                    blocked.right_color[chosen_i, c2, r2 + 1]
+                                    - blocked.right_color[chosen_i, c2, r1]
+                                )
+                                denom -= bvalid
+                                same -= bsame
+
                         score = (
                             float(denom_zero_score)
-                            if denom == 0
+                            if denom <= 0
                             else 1.0 - (same / denom)
                         )
 

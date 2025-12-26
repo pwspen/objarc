@@ -13,3 +13,8 @@ dependencies = [
     "matplotlib>=3.10.7",
     "scipy>=1.16.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
