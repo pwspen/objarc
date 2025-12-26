@@ -1,7 +1,12 @@
 import numpy as np
 from .analysis import calc_symmetries
 from .utils import print_matrix
-from .rect import find_best_rectangle, RectResult, _build_indices, _find_best_rectangle_core
+from .rect import (
+    find_best_rectangle,
+    RectResult,
+    _build_indices,
+    _find_best_rectangle_core,
+)
 
 
 def shannon_entropy(grid: np.ndarray) -> float:

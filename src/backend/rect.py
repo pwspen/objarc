@@ -1,11 +1,12 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Iterable, Sequence
+
 import numpy as np
-from numpy.typing import NDArray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RectResult:
     score: float
     area: int
@@ -13,126 +14,347 @@ class RectResult:
     c1: int
     r2: int
     c2: int
-    color: int  # chosen (non-sentinel) rectangle color
+    color: int
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return (
+            f"RectResult(score={self.score:.4f}, area={self.area}, "
+            f"r1={self.r1}, c1={self.c1}, r2={self.r2}, c2={self.c2}, color={self.color})"
+        )
 
 
-def _build_prefix_sums(
-    grid: NDArray[np.integer],
-    *,
-    sentinel: int = -1,
-    colors: Optional[NDArray[np.integer]] = None,
-) -> Tuple[NDArray[np.int64], NDArray[np.int32], NDArray[np.int32]]:
-    if grid.ndim != 2:
-        raise ValueError("grid must be 2D")
-    valid_mask = (grid != sentinel).astype(np.int32, copy=False)
-    ps_valid = (
-        np.pad(valid_mask, ((1, 0), (1, 0)), constant_values=0).cumsum(0).cumsum(1)
+def _build_indices(width: int) -> np.ndarray:
+    return np.arange(width, dtype=int)
+
+
+def _rect_sum(prefix: np.ndarray, r1: int, c1: int, r2: int, c2: int) -> int:
+    return int(
+        prefix[r2 + 1, c2 + 1]
+        - prefix[r1, c2 + 1]
+        - prefix[r2 + 1, c1]
+        + prefix[r1, c1]
     )
 
-    if colors is None:
-        color_values = np.unique(grid[grid != sentinel]).astype(np.int64, copy=False)
-    else:
-        c = np.asarray(colors)
-        color_values = np.unique(c[c != sentinel]).astype(np.int64, copy=False)
 
-    masks = (grid[..., None] == color_values).astype(np.int32)
-    ps_color = (
-        np.pad(masks, ((1, 0), (1, 0), (0, 0)), constant_values=0).cumsum(0).cumsum(1)
+def _row_prefix(mask: np.ndarray) -> np.ndarray:
+    rows, _ = mask.shape
+    return np.concatenate(
+        [np.zeros((rows, 1), dtype=np.int32), np.cumsum(mask, axis=1, dtype=np.int32)],
+        axis=1,
     )
-    ps_color = np.transpose(ps_color, (2, 0, 1))
-    return color_values, ps_color, ps_valid
 
 
-def _row_segment(ps2d: NDArray[np.int32], r1: int, r2: int) -> NDArray[np.int32]:
-    top = ps2d[r1]
-    bot = ps2d[r2 + 1]
-    return (bot[1:] - top[1:]) - (bot[:-1] - top[:-1])
+def _col_prefix(mask: np.ndarray) -> np.ndarray:
+    _, cols = mask.shape
+    return np.concatenate(
+        [np.zeros((1, cols), dtype=np.int32), np.cumsum(mask, axis=0, dtype=np.int32)],
+        axis=0,
+    )
 
 
-@dataclass(frozen=True)
-class _BlockedPrefixes:
-    up_valid: NDArray[np.int32]
-    down_valid: NDArray[np.int32]
-    left_valid: NDArray[np.int32]
-    right_valid: NDArray[np.int32]
-    up_color: NDArray[np.int32]
-    down_color: NDArray[np.int32]
-    left_color: NDArray[np.int32]
-    right_color: NDArray[np.int32]
+def _build_prefixes(
+    grid: np.ndarray, colors: Sequence[int], sentinel: int
+) -> tuple[
+    dict[int, np.ndarray],
+    dict[int, np.ndarray],
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
+    rows, cols = grid.shape
+    pad = ((1, 0), (1, 0))
+    color_full: dict[int, np.ndarray] = {}
+    color_row: dict[int, np.ndarray] = {}
+    color_col: dict[int, np.ndarray] = {}
+    for color in colors:
+        mask = (grid == color).astype(np.int32)
+        color_full[color] = np.pad(mask, pad).cumsum(0).cumsum(1)
+        color_row[color] = _row_prefix(mask)
+        color_col[color] = _col_prefix(mask)
+    non_s_mask = (grid != sentinel).astype(np.int32)
+    sentinel_mask = grid == sentinel
+    non_s_full = np.pad(non_s_mask, pad).cumsum(0).cumsum(1)
+    non_s_row = _row_prefix(non_s_mask)
+    non_s_col = _col_prefix(non_s_mask)
+    return (
+        color_full,
+        color_row,
+        color_col,
+        non_s_full,
+        non_s_row,
+        non_s_col,
+        sentinel_mask,
+    )
+
+
+def _dilate_h(mask: np.ndarray) -> np.ndarray:
+    if mask.size == 0:
+        return mask
+    res = mask.copy()
+    res[:, 1:] |= mask[:, :-1]
+    res[:, :-1] |= mask[:, 1:]
+    return res
+
+
+def _dilate_v(mask: np.ndarray) -> np.ndarray:
+    if mask.size == 0:
+        return mask
+    res = mask.copy()
+    res[1:, :] |= mask[:-1, :]
+    res[:-1, :] |= mask[1:, :]
+    return res
 
 
 def _build_blocked_prefixes(
-    grid: NDArray[np.integer],
-    sentinel_mask: NDArray[np.int32],
-    valid_mask: NDArray[np.int32],
-    color_values: NDArray[np.int64],
-    *,
+    sentinel_mask: np.ndarray,
+    non_s_mask: np.ndarray,
+    color_mask: np.ndarray,
     include_diagonals: bool,
-) -> _BlockedPrefixes:
-    H, W = grid.shape
-    adj_row = sentinel_mask.astype(bool, copy=False)
-    adj_col = sentinel_mask.astype(bool, copy=False)
-    if include_diagonals:
-        adj_row |= np.pad(adj_row[:, 1:], ((0, 0), (0, 1))) | np.pad(
-            adj_row[:, :-1], ((0, 0), (1, 0))
-        )
-        adj_col |= np.pad(adj_col[1:, :], ((0, 1), (0, 0))) | np.pad(
-            adj_col[:-1, :], ((1, 0), (0, 0))
-        )
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
+    rows, cols = sentinel_mask.shape
+    row_adj = sentinel_mask if not include_diagonals else _dilate_h(sentinel_mask)
+    col_adj = sentinel_mask if not include_diagonals else _dilate_v(sentinel_mask)
 
-    up_mask = valid_mask[:-1] & adj_row[1:]
-    down_mask = valid_mask[1:] & adj_row[:-1]
-    left_mask = valid_mask[:, :-1] & adj_col[:, 1:]
-    right_mask = valid_mask[:, 1:] & adj_col[:, :-1]
+    top_ns = np.zeros((rows, cols + 1), dtype=np.int32)
+    top_same = np.zeros_like(top_ns)
+    bottom_ns = np.zeros_like(top_ns)
+    bottom_same = np.zeros_like(top_ns)
+    left_ns = np.zeros((rows + 1, cols), dtype=np.int32)
+    left_same = np.zeros_like(left_ns)
+    right_ns = np.zeros_like(left_ns)
+    right_same = np.zeros_like(left_ns)
 
-    up_valid = np.zeros((H, W + 1), dtype=np.int32)
-    down_valid = np.zeros((H, W + 1), dtype=np.int32)
-    left_valid = np.zeros((W, H + 1), dtype=np.int32)
-    right_valid = np.zeros((W, H + 1), dtype=np.int32)
-    up_valid[1:, 1:] = up_mask.cumsum(axis=1)
-    down_valid[:-1, 1:] = down_mask.cumsum(axis=1)
-    left_valid[1:, 1:] = left_mask.T.cumsum(axis=1)
-    right_valid[:-1, 1:] = right_mask.T.cumsum(axis=1)
+    for r in range(rows):
+        row_mask = row_adj[r]
+        if row_mask.any():
+            if r > 0:
+                ns_vals = non_s_mask[r - 1] & row_mask
+                same_vals = color_mask[r - 1] & row_mask
+                top_ns[r, 1:] = np.cumsum(ns_vals, dtype=np.int32)
+                top_same[r, 1:] = np.cumsum(same_vals, dtype=np.int32)
+            if r + 1 < rows:
+                ns_vals = non_s_mask[r + 1] & row_mask
+                same_vals = color_mask[r + 1] & row_mask
+                bottom_ns[r, 1:] = np.cumsum(ns_vals, dtype=np.int32)
+                bottom_same[r, 1:] = np.cumsum(same_vals, dtype=np.int32)
 
-    masks = grid[..., None] == color_values
-    up_color = np.zeros((len(color_values), H, W + 1), dtype=np.int32)
-    down_color = np.zeros_like(up_color)
-    left_color = np.zeros((len(color_values), W, H + 1), dtype=np.int32)
-    right_color = np.zeros_like(left_color)
-    up_color[:, 1:, 1:] = np.transpose(
-        masks[:-1] & adj_row[1:, :, None], (2, 0, 1)
-    ).cumsum(axis=2)
-    down_color[:, :-1, 1:] = np.transpose(
-        masks[1:] & adj_row[:-1, :, None], (2, 0, 1)
-    ).cumsum(axis=2)
-    left_color[:, 1:, 1:] = np.transpose(
-        masks[:, :-1] & adj_col[:, 1:, None], (2, 1, 0)
-    ).cumsum(axis=2)
-    right_color[:, :-1, 1:] = np.transpose(
-        masks[:, 1:] & adj_col[:, :-1, None], (2, 1, 0)
-    ).cumsum(axis=2)
+    for c in range(cols):
+        col_mask = col_adj[:, c]
+        if col_mask.any():
+            if c > 0:
+                ns_vals = non_s_mask[:, c - 1] & col_mask
+                same_vals = color_mask[:, c - 1] & col_mask
+                left_ns[1:, c] = np.cumsum(ns_vals, dtype=np.int32)
+                left_same[1:, c] = np.cumsum(same_vals, dtype=np.int32)
+            if c + 1 < cols:
+                ns_vals = non_s_mask[:, c + 1] & col_mask
+                same_vals = color_mask[:, c + 1] & col_mask
+                right_ns[1:, c] = np.cumsum(ns_vals, dtype=np.int32)
+                right_same[1:, c] = np.cumsum(same_vals, dtype=np.int32)
 
-    return _BlockedPrefixes(
-        up_valid=up_valid,
-        down_valid=down_valid,
-        left_valid=left_valid,
-        right_valid=right_valid,
-        up_color=up_color,
-        down_color=down_color,
-        left_color=left_color,
-        right_color=right_color,
+    return (
+        top_ns,
+        top_same,
+        bottom_ns,
+        bottom_same,
+        left_ns,
+        left_same,
+        right_ns,
+        right_same,
     )
 
 
-def find_best_rectangle(
-    grid: NDArray[np.integer],
-    *,
+def _border_counts(
+    r1: int,
+    c1: int,
+    r2: int,
+    c2: int,
+    rows: int,
+    cols: int,
+    exclude_adjacent: bool,
+    row_non_s: np.ndarray,
+    row_color: np.ndarray,
+    col_non_s: np.ndarray,
+    col_color: np.ndarray,
+    blocked: tuple[np.ndarray, ...],
+) -> tuple[int, int]:
+    (
+        top_ns,
+        top_same,
+        bottom_ns,
+        bottom_same,
+        left_ns,
+        left_same,
+        right_ns,
+        right_same,
+    ) = blocked
+    denom = same = 0
+
+    if r1 > 0:
+        ns_total = int(row_non_s[r1 - 1, c2 + 1] - row_non_s[r1 - 1, c1])
+        same_total = int(row_color[r1 - 1, c2 + 1] - row_color[r1 - 1, c1])
+        if exclude_adjacent:
+            ns_total -= int(top_ns[r1, c2 + 1] - top_ns[r1, c1])
+            same_total -= int(top_same[r1, c2 + 1] - top_same[r1, c1])
+        denom += ns_total
+        same += same_total
+
+    if r2 + 1 < rows:
+        ns_total = int(row_non_s[r2 + 1, c2 + 1] - row_non_s[r2 + 1, c1])
+        same_total = int(row_color[r2 + 1, c2 + 1] - row_color[r2 + 1, c1])
+        if exclude_adjacent:
+            ns_total -= int(bottom_ns[r2, c2 + 1] - bottom_ns[r2, c1])
+            same_total -= int(bottom_same[r2, c2 + 1] - bottom_same[r2, c1])
+        denom += ns_total
+        same += same_total
+
+    if c1 > 0:
+        ns_total = int(col_non_s[r2 + 1, c1 - 1] - col_non_s[r1, c1 - 1])
+        same_total = int(col_color[r2 + 1, c1 - 1] - col_color[r1, c1 - 1])
+        if exclude_adjacent:
+            ns_total -= int(left_ns[r2 + 1, c1] - left_ns[r1, c1])
+            same_total -= int(left_same[r2 + 1, c1] - left_same[r1, c1])
+        denom += ns_total
+        same += same_total
+
+    if c2 + 1 < cols:
+        ns_total = int(col_non_s[r2 + 1, c2 + 1] - col_non_s[r1, c2 + 1])
+        same_total = int(col_color[r2 + 1, c2 + 1] - col_color[r1, c2 + 1])
+        if exclude_adjacent:
+            ns_total -= int(right_ns[r2 + 1, c2] - right_ns[r1, c2])
+            same_total -= int(right_same[r2 + 1, c2] - right_same[r1, c2])
+        denom += ns_total
+        same += same_total
+
+    return denom, same
+
+
+def _find_best_rectangle_core(
+    grid: np.ndarray,
     sentinel: int = -1,
     include_diagonals: bool = False,
     exclude_adjacent_to_sentinel: bool = True,
     denom_zero_score: float = 0.0,
-    colors: Optional[NDArray[np.integer]] = None,
-) -> Optional[RectResult]:
+    colors: Iterable[int] | None = None,
+    indices: np.ndarray | None = None,
+) -> RectResult | None:
+    arr = np.asarray(grid)
+    if arr.ndim != 2 or arr.size == 0:
+        raise ValueError("grid must be a non-empty 2D array")
+    rows, cols = arr.shape
+
+    colors_seq = sorted(
+        set(int(c) for c in colors)
+        if colors is not None
+        else set(int(c) for c in np.unique(arr) if c != sentinel)
+    )
+    if not colors_seq:
+        return None
+
+    (
+        color_full,
+        color_row_prefix,
+        color_col_prefix,
+        _,
+        row_non_s_prefix,
+        col_non_s_prefix,
+        sentinel_mask,
+    ) = _build_prefixes(arr, colors_seq, sentinel)
+
+    best: RectResult | None = None
+    non_s_mask_base = arr != sentinel
+
+    for color in colors_seq:
+        color_mask = arr == color
+        blocked = (
+            _build_blocked_prefixes(
+                sentinel_mask, non_s_mask_base, color_mask, include_diagonals
+            )
+            if exclude_adjacent_to_sentinel
+            else (
+                np.zeros((rows, cols + 1), dtype=np.int32),
+                np.zeros((rows, cols + 1), dtype=np.int32),
+                np.zeros((rows, cols + 1), dtype=np.int32),
+                np.zeros((rows, cols + 1), dtype=np.int32),
+                np.zeros((rows + 1, cols), dtype=np.int32),
+                np.zeros((rows + 1, cols), dtype=np.int32),
+                np.zeros((rows + 1, cols), dtype=np.int32),
+                np.zeros((rows + 1, cols), dtype=np.int32),
+            )
+        )
+        row_color_prefix = color_row_prefix[color]
+        col_color_prefix = color_col_prefix[color]
+
+        allowed = np.logical_or(sentinel_mask, color_mask)
+        heights = np.zeros(cols, dtype=np.int32)
+        cf_prefix = color_full[color]
+
+        for r in range(rows):
+            row_allowed = allowed[r]
+            heights = np.where(row_allowed, heights + 1, 0)
+            stack: list[int] = []
+            for c in range(cols + 1):
+                curr_h = heights[c] if c < cols else 0
+                while stack and heights[stack[-1]] > curr_h:
+                    top = stack.pop()
+                    h = heights[top]
+                    c2 = c - 1
+                    c1 = stack[-1] + 1 if stack else 0
+                    r2 = r
+                    r1 = r - h + 1
+                    color_count = _rect_sum(cf_prefix, r1, c1, r2, c2)
+                    if color_count == 0:
+                        continue
+                    denom, same = _border_counts(
+                        r1,
+                        c1,
+                        r2,
+                        c2,
+                        rows,
+                        cols,
+                        exclude_adjacent_to_sentinel,
+                        row_non_s_prefix,
+                        row_color_prefix,
+                        col_non_s_prefix,
+                        col_color_prefix,
+                        blocked,
+                    )
+                    score = denom_zero_score if denom <= 0 else 1.0 - (same / denom)
+                    area = (r2 - r1 + 1) * (c2 - c1 + 1)
+                    candidate = RectResult(score, area, r1, c1, r2, c2, color)
+                    if best is None or score > best.score:
+                        best = candidate
+                    elif score == best.score:
+                        if area > best.area:
+                            best = candidate
+                        elif area == best.area and (
+                            r1 < best.r1 or (r1 == best.r1 and c1 < best.c1)
+                        ):
+                            best = candidate
+                stack.append(c)
+    return best
+
+
+def find_best_rectangle(
+    grid: np.ndarray,
+    sentinel: int = -1,
+    *,
+    include_diagonals: bool = False,
+    exclude_adjacent_to_sentinel: bool = True,
+    denom_zero_score: float = 0.0,
+    colors: Iterable[int] | None = None,
+) -> RectResult | None:
     indices = _build_indices(grid.shape[1])
     return _find_best_rectangle_core(
         grid,
@@ -142,240 +364,4 @@ def find_best_rectangle(
         denom_zero_score,
         colors,
         indices,
-    )
-
-
-def _build_indices(W: int):
-    tri_mask = np.triu(np.ones((W, W), dtype=bool))
-    return (
-        tri_mask,
-        np.arange(W)[:, None],
-        np.arange(W)[None, :],
-        np.maximum(0, np.arange(W) - 1),
-        np.minimum(W - 1, np.arange(W) + 1),
-    )
-
-
-def _find_best_rectangle_core(
-    grid: NDArray[np.integer],
-    sentinel: int,
-    include_diagonals: bool,
-    exclude_adjacent_to_sentinel: bool,
-    denom_zero_score: float,
-    colors: Optional[NDArray[np.integer]],
-    indices: tuple[NDArray[np.bool_], NDArray[np.int64], NDArray[np.int64], NDArray[np.int64], NDArray[np.int64]],
-) -> Optional[RectResult]:
-    if grid.ndim != 2:
-        raise ValueError("grid must be 2D")
-    H, W = grid.shape
-    if H == 0 or W == 0:
-        return None
-
-    tri_mask, c1_ids, c2_ids, ec1_vec, ec2_vec = indices
-    if tri_mask.shape[0] != W:
-        tri_mask, c1_ids, c2_ids, ec1_vec, ec2_vec = _build_indices(W)
-
-    color_values, ps_color, ps_valid = _build_prefix_sums(grid, sentinel=sentinel, colors=colors)
-    if color_values.size == 0:
-        return None
-
-    valid_mask = (grid != sentinel).astype(np.int32, copy=False)
-    sentinel_mask = (grid == sentinel).astype(np.int32, copy=False)
-    blocked = (
-        _build_blocked_prefixes(
-            grid,
-            sentinel_mask,
-            valid_mask,
-            color_values,
-            include_diagonals=include_diagonals,
-        )
-        if exclude_adjacent_to_sentinel
-        else None
-    )
-
-    best: Optional[RectResult] = None
-    for r1 in range(H):
-        for r2 in range(r1, H):
-            cand = _best_in_band(
-                r1,
-                r2,
-                color_values,
-                ps_color,
-                ps_valid,
-                valid_mask,
-                blocked,
-                denom_zero_score,
-                include_diagonals,
-                tri_mask,
-                c1_ids,
-                c2_ids,
-                ec1_vec,
-                ec2_vec,
-            )
-            if cand is None:
-                continue
-            if best is None or (cand.score, cand.area, -cand.r1, -cand.c1) > (best.score, best.area, -best.r1, -best.c1):
-                best = cand
-    return best
-
-
-def _best_in_band(
-    r1: int,
-    r2: int,
-    color_values: NDArray[np.int64],
-    ps_color: NDArray[np.int32],
-    ps_valid: NDArray[np.int32],
-    valid_mask: NDArray[np.int32],
-    blocked: Optional[_BlockedPrefixes],
-    denom_zero_score: float,
-    include_diagonals: bool,
-    tri_mask: NDArray[np.bool_],
-    c1_ids: NDArray[np.int64],
-    c2_ids: NDArray[np.int64],
-    ec1_vec: NDArray[np.int64],
-    ec2_vec: NDArray[np.int64],
-) -> Optional[RectResult]:
-    H, W = ps_valid.shape[0] - 1, ps_valid.shape[1] - 1
-    h = r2 - r1 + 1
-    K = int(color_values.size)
-
-    band_valid_cols = _row_segment(ps_valid, r1, r2)
-    band_valid_prefix = np.zeros(W + 1, dtype=np.int32)
-    band_valid_prefix[1:] = band_valid_cols.cumsum(axis=0)
-    band_color_cols = (ps_color[:, r2 + 1, 1:] - ps_color[:, r1, 1:]) - (
-        ps_color[:, r2 + 1, :-1] - ps_color[:, r1, :-1]
-    )
-    band_color_prefix = np.zeros((K, W + 1), dtype=np.int32)
-    band_color_prefix[:, 1:] = band_color_cols.cumsum(axis=1)
-
-    valid_inside = np.where(
-        tri_mask, band_valid_prefix[None, 1:] - band_valid_prefix[:-1, None], 0
-    )
-    color_counts = band_color_prefix[:, None, 1:] - band_color_prefix[:, :-1, None]
-    mono_mask = (color_counts == valid_inside[None]) & (valid_inside > 0)[None]
-    if not mono_mask.any():
-        return None
-
-    has_color = mono_mask.any(axis=0)
-    color_choice = np.where(has_color, np.argmax(mono_mask, axis=0), -1)
-    cidx = color_choice.clip(0)
-
-    denom = np.zeros((W, W), dtype=np.int32)
-    same = np.zeros_like(denom)
-
-    if include_diagonals:
-        er1, er2 = max(0, r1 - 1), min(H - 1, r2 + 1)
-        ec1_idx, ec2_idx = ec1_vec[:, None], ec2_vec[None, :]
-        denom = (
-            ps_valid[er2 + 1, ec2_idx + 1]
-            - ps_valid[er1, ec2_idx + 1]
-            - ps_valid[er2 + 1, ec1_idx]
-            + ps_valid[er1, ec1_idx]
-        ) - valid_inside
-        expanded_k = (
-            ps_color[cidx, er2 + 1, ec2_idx + 1]
-            - ps_color[cidx, er1, ec2_idx + 1]
-            - ps_color[cidx, er2 + 1, ec1_idx]
-            + ps_color[cidx, er1, ec1_idx]
-        )
-        same = expanded_k - valid_inside
-    else:
-
-        def add_strip(row_idx: int):
-            cols = valid_mask[row_idx]
-            v = np.empty(W + 1, dtype=np.int32)
-            v[0] = 0
-            v[1:] = cols.cumsum()
-            nonlocal denom, same
-            denom += v[None, 1:] - v[:-1, None]
-            color_cols = (ps_color[:, row_idx + 1, 1:] - ps_color[:, row_idx, 1:]) - (
-                ps_color[:, row_idx + 1, :-1] - ps_color[:, row_idx, :-1]
-            )
-            cp = np.zeros((K, W + 1), dtype=np.int32)
-            cp[:, 1:] = color_cols.cumsum(axis=1)
-            diff = cp[:, None, 1:] - cp[:, :-1, None]
-            same += np.take_along_axis(diff, cidx[None, :, :], axis=0)[0] * has_color
-
-        if r1 - 1 >= 0:
-            add_strip(r1 - 1)
-        if r2 + 1 < H:
-            add_strip(r2 + 1)
-
-        left_valid = np.concatenate([[0], band_valid_cols[:-1]])
-        right_valid = np.concatenate([band_valid_cols[1:], [0]])
-        denom += left_valid[:, None] + right_valid[None, :]
-
-        left_lookup = np.concatenate(
-            [np.zeros((K, 1), dtype=np.int32), band_color_cols], axis=1
-        )
-        right_lookup = np.concatenate(
-            [band_color_cols[:, 1:], np.zeros((K, 1), dtype=np.int32)], axis=1
-        )
-        same += left_lookup[cidx, c1_ids]
-        same += right_lookup[cidx, c2_ids]
-
-    if blocked is not None:
-        if r1 - 1 >= 0:
-            bvalid = blocked.up_valid[r1][None, 1:] - blocked.up_valid[r1][:-1, None]
-            denom -= bvalid
-            bsame = (
-                blocked.up_color[:, r1][:, None, 1:]
-                - blocked.up_color[:, r1][:, :-1, None]
-            )
-            same -= np.take_along_axis(bsame, cidx[None, :, :], axis=0)[0]
-
-        if r2 + 1 < H:
-            bvalid = (
-                blocked.down_valid[r2][None, 1:] - blocked.down_valid[r2][:-1, None]
-            )
-            denom -= bvalid
-            bsame = (
-                blocked.down_color[:, r2][:, None, 1:]
-                - blocked.down_color[:, r2][:, :-1, None]
-            )
-            same -= np.take_along_axis(bsame, cidx[None, :, :], axis=0)[0]
-
-        left_bv = blocked.left_valid[:, r2 + 1] - blocked.left_valid[:, r1]
-        right_bv = blocked.right_valid[:, r2 + 1] - blocked.right_valid[:, r1]
-        denom -= left_bv[:, None]
-        denom -= right_bv[None, :]
-
-        left_bc = blocked.left_color[:, :, r2 + 1] - blocked.left_color[:, :, r1]
-        right_bc = blocked.right_color[:, :, r2 + 1] - blocked.right_color[:, :, r1]
-        same -= left_bc[cidx, c1_ids]
-        same -= right_bc[cidx, c2_ids]
-
-    valid_rects = has_color & tri_mask
-    score_matrix = np.full((W, W), -np.inf, dtype=float)
-    positive = denom > 0
-    score_matrix[valid_rects & ~positive] = float(denom_zero_score)
-    if np.any(valid_rects & positive):
-        pos_mask = valid_rects & positive
-        score_matrix[pos_mask] = 1.0 - (
-            same[pos_mask].astype(np.float64) / denom[pos_mask].astype(np.float64)
-        )
-
-    max_score = score_matrix.max()
-    if not np.isfinite(max_score):
-        return None
-
-    candidates = score_matrix == max_score
-    area_matrix = h * (c2_ids - c1_ids + 1)
-    max_area = area_matrix[candidates].max()
-    candidates &= area_matrix == max_area
-
-    idx = np.argwhere(candidates)
-    if idx.size == 0:
-        return None
-    c1_sel, c2_sel = idx[0]
-    chosen_i = int(color_choice[c1_sel, c2_sel])
-
-    return RectResult(
-        score=float(max_score),
-        area=int(area_matrix[c1_sel, c2_sel]),
-        r1=int(r1),
-        c1=int(c1_sel),
-        r2=int(r2),
-        c2=int(c2_sel),
-        color=int(color_values[chosen_i]),
     )
