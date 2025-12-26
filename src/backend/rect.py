@@ -18,19 +18,6 @@ class RectResult:
     color: int  # the chosen (non-sentinel) rectangle color
 
 
-def _rect_sum(ps2d: NDArray[np.int32], r1: int, c1: int, r2: int, c2: int) -> int:
-    """
-    Inclusive rectangle sum using (H+1, W+1) prefix sum.
-    """
-    r1p, c1p, r2p, c2p = r1 + 1, c1 + 1, r2 + 1, c2 + 1
-    return int(
-        ps2d[r2p, c2p]
-        - ps2d[r1p - 1, c2p]
-        - ps2d[r2p, c1p - 1]
-        + ps2d[r1p - 1, c1p - 1]
-    )
-
-
 def _row_segment(ps2d: NDArray[np.int32], r1: int, r2: int) -> NDArray[np.int32]:
     """
     Column-wise sums for the inclusive rows [r1, r2] using a 2D prefix sum.
@@ -277,7 +264,6 @@ def find_best_rectangle(
         # Grid contains only sentinel (or colors list empty after removing sentinel)
         return None
 
-    # Precompute a non-sentinel mask once (used for quick single-row strips).
     valid_mask = (grid != sentinel).astype(np.int32, copy=False)
     sentinel_mask = (grid == sentinel).astype(np.int32, copy=False)
 
@@ -293,13 +279,49 @@ def find_best_rectangle(
         else None
     )
 
+    if include_diagonals:
+        return _find_best_rectangle_diag(
+            grid,
+            color_values,
+            ps_color,
+            ps_valid,
+            blocked,
+            denom_zero_score,
+        )
+
+    return _find_best_rectangle_no_diag(
+        grid,
+        color_values,
+        ps_color,
+        ps_valid,
+        valid_mask,
+        blocked,
+        denom_zero_score,
+    )
+
+
+def _find_best_rectangle_no_diag(
+    grid: NDArray[np.integer],
+    color_values: NDArray[np.int64],
+    ps_color: NDArray[np.int32],
+    ps_valid: NDArray[np.int32],
+    valid_mask: NDArray[np.int32],
+    blocked: Optional[_BlockedPrefixes],
+    denom_zero_score: float,
+) -> Optional[RectResult]:
+    H, W = grid.shape
+    K = int(color_values.size)
+
+    tri_mask = np.triu(np.ones((W, W), dtype=bool))
+    c1_ids = np.arange(W)[:, None]
+    c2_ids = np.arange(W)[None, :]
+
     best: Optional[RectResult] = None
 
     for r1 in range(H):
         for r2 in range(r1, H):
             h = r2 - r1 + 1
 
-            # Column aggregates for the current row band [r1, r2]
             band_valid_cols = _row_segment(ps_valid, r1, r2)
             band_valid_prefix = np.zeros(W + 1, dtype=np.int32)
             band_valid_prefix[1:] = band_valid_cols.cumsum(axis=0)
@@ -310,7 +332,6 @@ def find_best_rectangle(
             band_color_prefix = np.zeros((K, W + 1), dtype=np.int32)
             band_color_prefix[:, 1:] = band_color_cols.cumsum(axis=1)
 
-            # Precompute top/bottom single-row strips for quick border sums.
             top_valid_prefix = None
             top_color_prefix = None
             if r1 - 1 >= 0:
@@ -337,202 +358,337 @@ def find_best_rectangle(
                 bottom_color_prefix = np.zeros((K, W + 1), dtype=np.int32)
                 bottom_color_prefix[:, 1:] = bottom_color_cols.cumsum(axis=1)
 
-            for c1 in range(W):
-                for c2 in range(c1, W):
-                    w = c2 - c1 + 1
-                    area = h * w
+            valid_inside = band_valid_prefix[None, 1:] - band_valid_prefix[:-1, None]
+            valid_inside = np.where(tri_mask, valid_inside, 0)
+            has_valid = valid_inside > 0
 
-                    valid_inside = int(band_valid_prefix[c2 + 1] - band_valid_prefix[c1])
-                    if valid_inside == 0:
-                        continue
+            color_counts = band_color_prefix[:, None, 1:] - band_color_prefix[:, :-1, None]
+            mono_mask = color_counts == valid_inside[None, :, :]
+            mono_mask &= has_valid[None, :, :]
 
-                    color_counts = band_color_prefix[:, c2 + 1] - band_color_prefix[:, c1]
-                    matches = np.flatnonzero(color_counts == valid_inside)
-                    if matches.size == 0:
-                        continue  # not monochromatic (ignoring sentinel)
+            if not mono_mask.any():
+                continue
 
-                    chosen_i = int(matches[0])
-                    inside_k = int(color_counts[chosen_i])
+            first_color_idx = np.argmax(mono_mask, axis=0)
+            has_color = mono_mask.any(axis=0)
+            color_choice = np.where(has_color, first_color_idx, -1)
 
-                    if include_diagonals:
-                        er1 = max(0, r1 - 1)
-                        ec1 = max(0, c1 - 1)
-                        er2 = min(H - 1, r2 + 1)
-                        ec2 = min(W - 1, c2 + 1)
+            denom = np.zeros((W, W), dtype=np.int32)
+            same = np.zeros_like(denom)
 
-                        valid_expanded = (
-                            ps_valid[er2 + 1, ec2 + 1]
-                            - ps_valid[er1, ec2 + 1]
-                            - ps_valid[er2 + 1, ec1]
-                            + ps_valid[er1, ec1]
-                        )
-                        denom = int(valid_expanded - valid_inside)
+            if top_valid_prefix is not None:
+                top_valid = top_valid_prefix[None, 1:] - top_valid_prefix[:-1, None]
+                denom += top_valid
 
-                        if denom == 0:
-                            score = float(denom_zero_score)
-                        else:
-                            expanded_k = (
-                                ps_color[chosen_i, er2 + 1, ec2 + 1]
-                                - ps_color[chosen_i, er1, ec2 + 1]
-                                - ps_color[chosen_i, er2 + 1, ec1]
-                                + ps_color[chosen_i, er1, ec1]
-                            )
-                            same = int(expanded_k - inside_k)
+                top_color_diff = top_color_prefix[:, None, 1:] - top_color_prefix[:, :-1, None]
+                top_same = np.take_along_axis(
+                    top_color_diff, color_choice.clip(0)[None, :, :], axis=0
+                )[0]
+                same += np.where(has_color, top_same, 0)
 
-                            if blocked is not None:
-                                if r1 - 1 >= 0:
-                                    bvalid = int(
-                                        blocked.up_valid[r1, ec2 + 1]
-                                        - blocked.up_valid[r1, ec1]
-                                    )
-                                    bsame = int(
-                                        blocked.up_color[chosen_i, r1, ec2 + 1]
-                                        - blocked.up_color[chosen_i, r1, ec1]
-                                    )
-                                    denom -= bvalid
-                                    same -= bsame
-                                if r2 + 1 < H:
-                                    bvalid = int(
-                                        blocked.down_valid[r2, ec2 + 1]
-                                        - blocked.down_valid[r2, ec1]
-                                    )
-                                    bsame = int(
-                                        blocked.down_color[chosen_i, r2, ec2 + 1]
-                                        - blocked.down_color[chosen_i, r2, ec1]
-                                    )
-                                    denom -= bvalid
-                                    same -= bsame
-                                if c1 - 1 >= 0:
-                                    bvalid = int(
-                                        blocked.left_valid[c1, r2 + 1]
-                                        - blocked.left_valid[c1, r1]
-                                    )
-                                    bsame = int(
-                                        blocked.left_color[chosen_i, c1, r2 + 1]
-                                        - blocked.left_color[chosen_i, c1, r1]
-                                    )
-                                    denom -= bvalid
-                                    same -= bsame
-                                if c2 + 1 < W:
-                                    bvalid = int(
-                                        blocked.right_valid[c2, r2 + 1]
-                                        - blocked.right_valid[c2, r1]
-                                    )
-                                    bsame = int(
-                                        blocked.right_color[chosen_i, c2, r2 + 1]
-                                        - blocked.right_color[chosen_i, c2, r1]
-                                    )
-                                    denom -= bvalid
-                                    same -= bsame
+            if bottom_valid_prefix is not None:
+                bottom_valid = bottom_valid_prefix[None, 1:] - bottom_valid_prefix[:-1, None]
+                denom += bottom_valid
 
-                            if denom <= 0:
-                                score = float(denom_zero_score)
-                            else:
-                                score = 1.0 - (same / denom)
-                    else:
-                        same = 0
-                        denom = 0
+                bottom_color_diff = (
+                    bottom_color_prefix[:, None, 1:] - bottom_color_prefix[:, :-1, None]
+                )
+                bottom_same = np.take_along_axis(
+                    bottom_color_diff, color_choice.clip(0)[None, :, :], axis=0
+                )[0]
+                same += np.where(has_color, bottom_same, 0)
 
-                        if top_valid_prefix is not None:
-                            denom += int(
-                                top_valid_prefix[c2 + 1] - top_valid_prefix[c1]
-                            )
-                            same += int(
-                                top_color_prefix[chosen_i, c2 + 1]
-                                - top_color_prefix[chosen_i, c1]
-                            )
-                        if bottom_valid_prefix is not None:
-                            denom += int(
-                                bottom_valid_prefix[c2 + 1] - bottom_valid_prefix[c1]
-                            )
-                            same += int(
-                                bottom_color_prefix[chosen_i, c2 + 1]
-                                - bottom_color_prefix[chosen_i, c1]
-                            )
-                        if c1 - 1 >= 0:
-                            denom += int(band_valid_cols[c1 - 1])
-                            same += int(band_color_cols[chosen_i, c1 - 1])
-                        if c2 + 1 < W:
-                            denom += int(band_valid_cols[c2 + 1])
-                            same += int(band_color_cols[chosen_i, c2 + 1])
+            left_valid_vals = np.concatenate([[0], band_valid_cols[:-1]])
+            denom += left_valid_vals[:, None]
 
-                        if blocked is not None:
-                            if top_valid_prefix is not None:
-                                bvalid = int(
-                                    blocked.up_valid[r1, c2 + 1]
-                                    - blocked.up_valid[r1, c1]
-                                )
-                                bsame = int(
-                                    blocked.up_color[chosen_i, r1, c2 + 1]
-                                    - blocked.up_color[chosen_i, r1, c1]
-                                )
-                                denom -= bvalid
-                                same -= bsame
-                            if bottom_valid_prefix is not None:
-                                bvalid = int(
-                                    blocked.down_valid[r2, c2 + 1]
-                                    - blocked.down_valid[r2, c1]
-                                )
-                                bsame = int(
-                                    blocked.down_color[chosen_i, r2, c2 + 1]
-                                    - blocked.down_color[chosen_i, r2, c1]
-                                )
-                                denom -= bvalid
-                                same -= bsame
-                            if c1 - 1 >= 0:
-                                bvalid = int(
-                                    blocked.left_valid[c1, r2 + 1]
-                                    - blocked.left_valid[c1, r1]
-                                )
-                                bsame = int(
-                                    blocked.left_color[chosen_i, c1, r2 + 1]
-                                    - blocked.left_color[chosen_i, c1, r1]
-                                )
-                                denom -= bvalid
-                                same -= bsame
-                            if c2 + 1 < W:
-                                bvalid = int(
-                                    blocked.right_valid[c2, r2 + 1]
-                                    - blocked.right_valid[c2, r1]
-                                )
-                                bsame = int(
-                                    blocked.right_color[chosen_i, c2, r2 + 1]
-                                    - blocked.right_color[chosen_i, c2, r1]
-                                )
-                                denom -= bvalid
-                                same -= bsame
+            right_valid_vals = np.concatenate([band_valid_cols[1:], [0]])
+            denom += right_valid_vals[None, :]
 
-                        score = (
-                            float(denom_zero_score)
-                            if denom <= 0
-                            else 1.0 - (same / denom)
-                        )
+            left_color_lookup = np.concatenate(
+                [np.zeros((K, 1), dtype=np.int32), band_color_cols], axis=1
+            )
+            left_same = left_color_lookup[color_choice.clip(0), c1_ids]
+            same += np.where(has_color, left_same, 0)
 
-                    cand = RectResult(
-                        score=float(score),
-                        area=int(area),
-                        r1=int(r1),
-                        c1=int(c1),
-                        r2=int(r2),
-                        c2=int(c2),
-                        color=int(color_values[chosen_i]),
-                    )
+            right_color_lookup = np.concatenate(
+                [band_color_cols[:, 1:], np.zeros((K, 1), dtype=np.int32)], axis=1
+            )
+            right_same = right_color_lookup[color_choice.clip(0), c2_ids]
+            same += np.where(has_color, right_same, 0)
 
-                    if best is None or (
-                        (cand.score > best.score)
-                        or (cand.score == best.score and cand.area > best.area)
-                        or (
-                            cand.score == best.score
-                            and cand.area == best.area
-                            and cand.r1 < best.r1
-                        )
-                        or (
-                            cand.score == best.score
-                            and cand.area == best.area
-                            and cand.r1 == best.r1
-                            and cand.c1 < best.c1
-                        )
-                    ):
-                        best = cand
+            if blocked is not None:
+                if r1 - 1 >= 0:
+                    up_row = blocked.up_valid[r1]
+                    bvalid = up_row[None, 1:] - up_row[:-1, None]
+                    denom -= bvalid
+
+                    up_color = blocked.up_color[:, r1]
+                    bsame = up_color[:, None, 1:] - up_color[:, :-1, None]
+                    bsame_sel = np.take_along_axis(
+                        bsame, color_choice.clip(0)[None, :, :], axis=0
+                    )[0]
+                    same -= np.where(has_color, bsame_sel, 0)
+
+                if r2 + 1 < H:
+                    down_row = blocked.down_valid[r2]
+                    bvalid = down_row[None, 1:] - down_row[:-1, None]
+                    denom -= bvalid
+
+                    down_color = blocked.down_color[:, r2]
+                    bsame = down_color[:, None, 1:] - down_color[:, :-1, None]
+                    bsame_sel = np.take_along_axis(
+                        bsame, color_choice.clip(0)[None, :, :], axis=0
+                    )[0]
+                    same -= np.where(has_color, bsame_sel, 0)
+
+                left_blocked_vals = blocked.left_valid[:, r2 + 1] - blocked.left_valid[:, r1]
+                denom -= left_blocked_vals[:, None]
+
+                left_blocked_color = blocked.left_color[:, :, r2 + 1] - blocked.left_color[
+                    :, :, r1
+                ]
+                bsame_left = left_blocked_color[color_choice.clip(0), c1_ids]
+                same -= np.where(has_color, bsame_left, 0)
+
+                right_blocked_vals = blocked.right_valid[:, r2 + 1] - blocked.right_valid[
+                    :, r1
+                ]
+                denom -= right_blocked_vals[None, :]
+
+                right_blocked_color = blocked.right_color[:, :, r2 + 1] - blocked.right_color[
+                    :, :, r1
+                ]
+                bsame_right = right_blocked_color[color_choice.clip(0), c2_ids]
+                same -= np.where(has_color, bsame_right, 0)
+
+            valid_rects = has_color & tri_mask
+
+            score_matrix = np.full((W, W), -np.inf, dtype=float)
+            positive_denom = denom > 0
+            valid_positive = valid_rects & positive_denom
+            score_matrix[valid_rects & ~positive_denom] = float(denom_zero_score)
+
+            if np.any(valid_positive):
+                score_matrix[valid_positive] = 1.0 - (
+                    same[valid_positive].astype(np.float64)
+                    / denom[valid_positive].astype(np.float64)
+                )
+
+            max_score = score_matrix.max()
+            if not np.isfinite(max_score):
+                continue
+
+            candidates = score_matrix == max_score
+            area_matrix = h * (c2_ids - c1_ids + 1)
+            max_area = area_matrix[candidates].max()
+            candidates &= area_matrix == max_area
+
+            # Tie-break: smallest c1 (rows), then c2 via argwhere order.
+            cand_idx = np.argwhere(candidates)
+            if cand_idx.size == 0:
+                continue
+            c1_sel, c2_sel = cand_idx[0]
+
+            chosen_i = int(color_choice[c1_sel, c2_sel])
+            area = int(area_matrix[c1_sel, c2_sel])
+            cand = RectResult(
+                score=float(max_score),
+                area=area,
+                r1=int(r1),
+                c1=int(c1_sel),
+                r2=int(r2),
+                c2=int(c2_sel),
+                color=int(color_values[chosen_i]),
+            )
+
+            if best is None or (
+                (cand.score > best.score)
+                or (cand.score == best.score and cand.area > best.area)
+                or (
+                    cand.score == best.score
+                    and cand.area == best.area
+                    and cand.r1 < best.r1
+                )
+                or (
+                    cand.score == best.score
+                    and cand.area == best.area
+                    and cand.r1 == best.r1
+                    and cand.c1 < best.c1
+                )
+            ):
+                best = cand
+
+    return best
+
+
+def _find_best_rectangle_diag(
+    grid: NDArray[np.integer],
+    color_values: NDArray[np.int64],
+    ps_color: NDArray[np.int32],
+    ps_valid: NDArray[np.int32],
+    blocked: Optional[_BlockedPrefixes],
+    denom_zero_score: float,
+) -> Optional[RectResult]:
+    H, W = grid.shape
+
+    tri_mask = np.triu(np.ones((W, W), dtype=bool))
+    c1_ids = np.arange(W)[:, None]
+    c2_ids = np.arange(W)[None, :]
+    ec1_vec = np.maximum(0, np.arange(W) - 1)
+    ec2_vec = np.minimum(W - 1, np.arange(W) + 1)
+
+    best: Optional[RectResult] = None
+
+    for r1 in range(H):
+        for r2 in range(r1, H):
+            h = r2 - r1 + 1
+            er1 = max(0, r1 - 1)
+            er2 = min(H - 1, r2 + 1)
+
+            band_valid_cols = _row_segment(ps_valid, r1, r2)
+            band_valid_prefix = np.zeros(W + 1, dtype=np.int32)
+            band_valid_prefix[1:] = band_valid_cols.cumsum(axis=0)
+
+            band_color_cols = (ps_color[:, r2 + 1, 1:] - ps_color[:, r1, 1:]) - (
+                ps_color[:, r2 + 1, :-1] - ps_color[:, r1, :-1]
+            )
+            band_color_prefix = np.zeros((K, W + 1), dtype=np.int32)
+            band_color_prefix[:, 1:] = band_color_cols.cumsum(axis=1)
+
+            valid_inside = band_valid_prefix[None, 1:] - band_valid_prefix[:-1, None]
+            valid_inside = np.where(tri_mask, valid_inside, 0)
+            has_valid = valid_inside > 0
+
+            color_counts = band_color_prefix[:, None, 1:] - band_color_prefix[:, :-1, None]
+            mono_mask = color_counts == valid_inside[None, :, :]
+            mono_mask &= has_valid[None, :, :]
+
+            if not mono_mask.any():
+                continue
+
+            first_color_idx = np.argmax(mono_mask, axis=0)
+            has_color = mono_mask.any(axis=0)
+            color_choice = np.where(has_color, first_color_idx, -1)
+            color_idx = color_choice.clip(0)
+
+            ec1_idx = ec1_vec[:, None]
+            ec2_idx = ec2_vec[None, :]
+
+            valid_expanded = (
+                ps_valid[er2 + 1, ec2_idx + 1]
+                - ps_valid[er1, ec2_idx + 1]
+                - ps_valid[er2 + 1, ec1_idx]
+                + ps_valid[er1, ec1_idx]
+            )
+            denom = valid_expanded - valid_inside
+
+            expanded_k = (
+                ps_color[color_idx, er2 + 1, ec2_idx + 1]
+                - ps_color[color_idx, er1, ec2_idx + 1]
+                - ps_color[color_idx, er2 + 1, ec1_idx]
+                + ps_color[color_idx, er1, ec1_idx]
+            )
+            same = expanded_k - valid_inside
+
+            if blocked is not None:
+                if r1 - 1 >= 0:
+                    up_row = blocked.up_valid[r1]
+                    bvalid = up_row[None, 1:] - up_row[:-1, None]
+                    denom -= bvalid
+
+                    up_color = blocked.up_color[:, r1]
+                    bsame = up_color[:, None, 1:] - up_color[:, :-1, None]
+                    bsame_sel = np.take_along_axis(
+                        bsame, color_idx[None, :, :], axis=0
+                    )[0]
+                    same -= np.where(has_color, bsame_sel, 0)
+
+                if r2 + 1 < H:
+                    down_row = blocked.down_valid[r2]
+                    bvalid = down_row[None, 1:] - down_row[:-1, None]
+                    denom -= bvalid
+
+                    down_color = blocked.down_color[:, r2]
+                    bsame = down_color[:, None, 1:] - down_color[:, :-1, None]
+                    bsame_sel = np.take_along_axis(
+                        bsame, color_idx[None, :, :], axis=0
+                    )[0]
+                    same -= np.where(has_color, bsame_sel, 0)
+
+                left_blocked_vals = blocked.left_valid[:, r2 + 1] - blocked.left_valid[:, r1]
+                denom -= left_blocked_vals[:, None]
+
+                left_blocked_color = blocked.left_color[:, :, r2 + 1] - blocked.left_color[
+                    :, :, r1
+                ]
+                bsame_left = left_blocked_color[color_idx, c1_ids]
+                same -= np.where(has_color, bsame_left, 0)
+
+                right_blocked_vals = blocked.right_valid[:, r2 + 1] - blocked.right_valid[
+                    :, r1
+                ]
+                denom -= right_blocked_vals[None, :]
+
+                right_blocked_color = blocked.right_color[:, :, r2 + 1] - blocked.right_color[
+                    :, :, r1
+                ]
+                bsame_right = right_blocked_color[color_idx, c2_ids]
+                same -= np.where(has_color, bsame_right, 0)
+
+            valid_rects = has_color & tri_mask
+
+            score_matrix = np.full((W, W), -np.inf, dtype=float)
+            positive_denom = denom > 0
+            valid_positive = valid_rects & positive_denom
+            score_matrix[valid_rects & ~positive_denom] = float(denom_zero_score)
+
+            if np.any(valid_positive):
+                score_matrix[valid_positive] = 1.0 - (
+                    same[valid_positive].astype(np.float64)
+                    / denom[valid_positive].astype(np.float64)
+                )
+
+            max_score = score_matrix.max()
+            if not np.isfinite(max_score):
+                continue
+
+            candidates = score_matrix == max_score
+            area_matrix = h * (c2_ids - c1_ids + 1)
+            max_area = area_matrix[candidates].max()
+            candidates &= area_matrix == max_area
+
+            cand_idx = np.argwhere(candidates)
+            if cand_idx.size == 0:
+                continue
+            c1_sel, c2_sel = cand_idx[0]
+
+            chosen_i = int(color_choice[c1_sel, c2_sel])
+            area = int(area_matrix[c1_sel, c2_sel])
+            cand = RectResult(
+                score=float(max_score),
+                area=area,
+                r1=int(r1),
+                c1=int(c1_sel),
+                r2=int(r2),
+                c2=int(c2_sel),
+                color=int(color_values[chosen_i]),
+            )
+
+            if best is None or (
+                (cand.score > best.score)
+                or (cand.score == best.score and cand.area > best.area)
+                or (
+                    cand.score == best.score
+                    and cand.area == best.area
+                    and cand.r1 < best.r1
+                )
+                or (
+                    cand.score == best.score
+                    and cand.area == best.area
+                    and cand.r1 == best.r1
+                    and cand.c1 < best.c1
+                )
+            ):
+                best = cand
 
     return best

@@ -1,0 +1,33 @@
+- rectize behavior: works on a copy of the input grid; sentinel defaults to -1. It repeatedly calls
+    find_best_rectangle, appends the returned RectResult in that order, fills the chosen rectangle with
+    the sentinel, and stops when there is ≤1 non-sentinel color left, or when find_best_rectangle returns
+    None or a score ≤ 0. The final list is printed then returned.
+  - Valid rectangle definition (find_best_rectangle): grid must be 2D and non-empty. A candidate rectangle
+    must contain at least one non-sentinel cell, and all non-sentinel cells inside it must be the same
+    color (sentinel holes inside are allowed). Colors considered are all unique non-sentinel values (or a
+    provided list), sorted, and stored in RectResult.color.
+  - Scoring (default include_diagonals=False, exclude_adjacent_to_sentinel=True, denom_zero_score=0.0):
+      - Border cells are outside the rectangle, in-bounds, and non-sentinel. With diagonals off, border =
+        immediate N/S/E/W strips; with diagonals on, border = the 1-cell expanded ring.
+      - score = 1 - (same / denom) where denom is the count of contributing border cells and same is how
+        many of those equal the rectangle’s interior color. If denom <= 0 after adjustments, score falls
+        back to denom_zero_score.
+  - Sentinel adjacency exclusion: when exclude_adjacent_to_sentinel is true (the default used by rectize),
+    any border cells that touch interior sentinel cells (4- or 8-neighbor matching include_diagonals) are
+    removed from denom and same. This uses precomputed _build_blocked_prefixes.
+  - Prefix-sum machinery: _build_prefix_sums creates per-color prefix sums and a non-sentinel prefix sum;
+    _row_segment and the band/top/bottom/left/right prefix arrays provide O(1) strip sums used in the
+    double loop over r1..r2 and c1..c2. _rect_sum exists but isn’t used by rectize.
+  - Tie-breaking for the “best” rectangle: prefer higher score, then larger area, then smallest r1
+    (topmost), then smallest c1 (leftmost).
+  - Returned data: each RectResult stores score, area, inclusive coords r1,c1,r2,c2, and the chosen non-
+    sentinel color. Order reflects the greedy sequence of selections.
+
+  Let me know if this matches what you expect; once you confirm, I’ll save it to a file and move on to
+  performance ideas.
+
+
+› Nice work. The prefix some machinery is not Required. It's just the current implementation, so you
+  don't have to maintain it. Now save the plan and improvement ideas in markdown then start optimizing.
+  If you realize that . Some minor change in functionality or capability would lead to a large change in
+  performance. Inform me and we may be able to deal with that. If the performance gain is goood enough.
