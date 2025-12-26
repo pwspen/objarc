@@ -23,13 +23,21 @@ def _rect_sum(ps2d: NDArray[np.int32], r1: int, c1: int, r2: int, c2: int) -> in
     Inclusive rectangle sum using (H+1, W+1) prefix sum.
     """
     r1p, c1p, r2p, c2p = r1 + 1, c1 + 1, r2 + 1, c2 + 1
-    v = (
+    return int(
         ps2d[r2p, c2p]
         - ps2d[r1p - 1, c2p]
         - ps2d[r2p, c1p - 1]
         + ps2d[r1p - 1, c1p - 1]
     )
-    return int(v)
+
+
+def _row_segment(ps2d: NDArray[np.int32], r1: int, r2: int) -> NDArray[np.int32]:
+    """
+    Column-wise sums for the inclusive rows [r1, r2] using a 2D prefix sum.
+    """
+    top = ps2d[r1]
+    bot = ps2d[r2 + 1]
+    return (bot[1:] - top[1:]) - (bot[:-1] - top[:-1])
 
 
 def _build_prefix_sums(
@@ -135,78 +143,119 @@ def find_best_rectangle(
 
     best: Optional[RectResult] = None
 
+    # Precompute a non-sentinel mask once (used for quick single-row strips).
+    valid_mask = (grid != sentinel).astype(np.int32, copy=False)
+
     for r1 in range(H):
         for r2 in range(r1, H):
             h = r2 - r1 + 1
+
+            # Column aggregates for the current row band [r1, r2]
+            band_valid_cols = _row_segment(ps_valid, r1, r2)
+            band_valid_prefix = np.zeros(W + 1, dtype=np.int32)
+            band_valid_prefix[1:] = band_valid_cols.cumsum(axis=0)
+
+            band_color_cols = (ps_color[:, r2 + 1, 1:] - ps_color[:, r1, 1:]) - (
+                ps_color[:, r2 + 1, :-1] - ps_color[:, r1, :-1]
+            )
+            band_color_prefix = np.zeros((K, W + 1), dtype=np.int32)
+            band_color_prefix[:, 1:] = band_color_cols.cumsum(axis=1)
+
+            # Precompute top/bottom single-row strips for quick border sums.
+            top_valid_prefix = None
+            top_color_prefix = None
+            if r1 - 1 >= 0:
+                top_cols = valid_mask[r1 - 1]
+                top_valid_prefix = np.zeros(W + 1, dtype=np.int32)
+                top_valid_prefix[1:] = top_cols.cumsum()
+
+                top_color_cols = (ps_color[:, r1, 1:] - ps_color[:, r1 - 1, 1:]) - (
+                    ps_color[:, r1, :-1] - ps_color[:, r1 - 1, :-1]
+                )
+                top_color_prefix = np.zeros((K, W + 1), dtype=np.int32)
+                top_color_prefix[:, 1:] = top_color_cols.cumsum(axis=1)
+
+            bottom_valid_prefix = None
+            bottom_color_prefix = None
+            if r2 + 1 < H:
+                bottom_cols = valid_mask[r2 + 1]
+                bottom_valid_prefix = np.zeros(W + 1, dtype=np.int32)
+                bottom_valid_prefix[1:] = bottom_cols.cumsum()
+
+                bottom_color_cols = (
+                    ps_color[:, r2 + 2, 1:] - ps_color[:, r2 + 1, 1:]
+                ) - (ps_color[:, r2 + 2, :-1] - ps_color[:, r2 + 1, :-1])
+                bottom_color_prefix = np.zeros((K, W + 1), dtype=np.int32)
+                bottom_color_prefix[:, 1:] = bottom_color_cols.cumsum(axis=1)
+
             for c1 in range(W):
                 for c2 in range(c1, W):
                     w = c2 - c1 + 1
                     area = h * w
 
-                    valid_inside = _rect_sum(ps_valid, r1, c1, r2, c2)
+                    valid_inside = int(band_valid_prefix[c2 + 1] - band_valid_prefix[c1])
                     if valid_inside == 0:
-                        # rectangle is only sentinel -> not allowed
                         continue
 
-                    # Determine whether all non-sentinel inside are the same color:
-                    # find i such that count(color_i in rect) == valid_inside
-                    chosen_i = -1
-                    inside_k = 0
-                    for i in range(K):
-                        cnt = _rect_sum(ps_color[i], r1, c1, r2, c2)
-                        if cnt == valid_inside:
-                            chosen_i = i
-                            inside_k = cnt
-                            break
-                    if chosen_i < 0:
+                    color_counts = band_color_prefix[:, c2 + 1] - band_color_prefix[:, c1]
+                    matches = np.flatnonzero(color_counts == valid_inside)
+                    if matches.size == 0:
                         continue  # not monochromatic (ignoring sentinel)
 
-                    # Border counts, excluding sentinel
+                    chosen_i = int(matches[0])
+                    inside_k = int(color_counts[chosen_i])
+
                     if include_diagonals:
                         er1 = max(0, r1 - 1)
                         ec1 = max(0, c1 - 1)
                         er2 = min(H - 1, r2 + 1)
                         ec2 = min(W - 1, c2 + 1)
 
-                        valid_expanded = _rect_sum(ps_valid, er1, ec1, er2, ec2)
-                        denom = valid_expanded - valid_inside  # ring valid cells only
+                        valid_expanded = (
+                            ps_valid[er2 + 1, ec2 + 1]
+                            - ps_valid[er1, ec2 + 1]
+                            - ps_valid[er2 + 1, ec1]
+                            + ps_valid[er1, ec1]
+                        )
+                        denom = int(valid_expanded - valid_inside)
 
                         if denom == 0:
                             score = float(denom_zero_score)
                         else:
-                            expanded_k = _rect_sum(
-                                ps_color[chosen_i], er1, ec1, er2, ec2
+                            expanded_k = (
+                                ps_color[chosen_i, er2 + 1, ec2 + 1]
+                                - ps_color[chosen_i, er1, ec2 + 1]
+                                - ps_color[chosen_i, er2 + 1, ec1]
+                                + ps_color[chosen_i, er1, ec1]
                             )
-                            same = expanded_k - inside_k
+                            same = int(expanded_k - inside_k)
                             score = 1.0 - (same / denom)
                     else:
                         same = 0
                         denom = 0
 
-                        # top strip
-                        if r1 - 1 >= 0:
-                            denom += _rect_sum(ps_valid, r1 - 1, c1, r1 - 1, c2)
-                            same += _rect_sum(
-                                ps_color[chosen_i], r1 - 1, c1, r1 - 1, c2
+                        if top_valid_prefix is not None:
+                            denom += int(
+                                top_valid_prefix[c2 + 1] - top_valid_prefix[c1]
                             )
-                        # bottom strip
-                        if r2 + 1 < H:
-                            denom += _rect_sum(ps_valid, r2 + 1, c1, r2 + 1, c2)
-                            same += _rect_sum(
-                                ps_color[chosen_i], r2 + 1, c1, r2 + 1, c2
+                            same += int(
+                                top_color_prefix[chosen_i, c2 + 1]
+                                - top_color_prefix[chosen_i, c1]
                             )
-                        # left strip
+                        if bottom_valid_prefix is not None:
+                            denom += int(
+                                bottom_valid_prefix[c2 + 1] - bottom_valid_prefix[c1]
+                            )
+                            same += int(
+                                bottom_color_prefix[chosen_i, c2 + 1]
+                                - bottom_color_prefix[chosen_i, c1]
+                            )
                         if c1 - 1 >= 0:
-                            denom += _rect_sum(ps_valid, r1, c1 - 1, r2, c1 - 1)
-                            same += _rect_sum(
-                                ps_color[chosen_i], r1, c1 - 1, r2, c1 - 1
-                            )
-                        # right strip
+                            denom += int(band_valid_cols[c1 - 1])
+                            same += int(band_color_cols[chosen_i, c1 - 1])
                         if c2 + 1 < W:
-                            denom += _rect_sum(ps_valid, r1, c2 + 1, r2, c2 + 1)
-                            same += _rect_sum(
-                                ps_color[chosen_i], r1, c2 + 1, r2, c2 + 1
-                            )
+                            denom += int(band_valid_cols[c2 + 1])
+                            same += int(band_color_cols[chosen_i, c2 + 1])
 
                         score = (
                             float(denom_zero_score)
